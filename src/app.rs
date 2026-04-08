@@ -3,6 +3,7 @@ use egui::ColorImage;
 use image::{imageops::FilterType, DynamicImage, ImageReader, RgbaImage};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -11,11 +12,17 @@ use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle
 /// Dimensions of the wallpaper preview rendered inside the monitor mockup.
 const PREVIEW_W: u32 = 316;
 const PREVIEW_H: u32 = 198;
-const PREVIEW_WORK_SCALE: u32 = 3;
+const PREVIEW_WORK_SCALE: u32 = 2;
 
 struct PreviewResult {
     request_id: u64,
     rgba: Result<Vec<u8>, String>,
+    cache: Option<(PathBuf, Arc<DynamicImage>)>,
+}
+
+struct PreviewCache {
+    path: PathBuf,
+    work_image: Arc<DynamicImage>,
 }
 
 pub struct WallpaperApp {
@@ -34,6 +41,8 @@ pub struct WallpaperApp {
     preview_rx: Receiver<PreviewResult>,
     /// True while a background worker is preparing the latest preview.
     preview_loading: bool,
+    /// Cache de l'image de travail réduite pour éviter de redécoder le fichier.
+    preview_cache: Option<PreviewCache>,
     /// Status message shown at the bottom of the window.
     status: Option<(String, bool)>, // (text, is_error)
     /// Set to true when the user clicks "Browse…"; consumed at the next frame.
@@ -57,6 +66,7 @@ impl WallpaperApp {
             preview_tx,
             preview_rx,
             preview_loading: false,
+            preview_cache: None,
             status: None,
             pending_file_dialog: false,
         };
@@ -83,9 +93,36 @@ impl WallpaperApp {
         let style = self.style;
         let tx = self.preview_tx.clone();
 
+        if let Some(cache) = &self.preview_cache {
+            if cache.path == path {
+                let work = Arc::clone(&cache.work_image);
+                thread::spawn(move || {
+                    let rgba = Ok(render_preview(&work, style, PREVIEW_W, PREVIEW_H));
+                    let _ = tx.send(PreviewResult {
+                        request_id,
+                        rgba,
+                        cache: None,
+                    });
+                });
+                return;
+            }
+        }
+
         thread::spawn(move || {
-            let rgba = load_preview_rgba(&path, style).map_err(|e| e.to_string());
-            let _ = tx.send(PreviewResult { request_id, rgba });
+            let decoded = load_preview_work_image(&path).map_err(|e| e.to_string());
+            let (rgba, cache) = match decoded {
+                Ok(work) => {
+                    let rgba = Ok(render_preview(&work, style, PREVIEW_W, PREVIEW_H));
+                    (rgba, Some((path, work)))
+                }
+                Err(err) => (Err(err), None),
+            };
+
+            let _ = tx.send(PreviewResult {
+                request_id,
+                rgba,
+                cache,
+            });
         });
     }
 
@@ -95,6 +132,10 @@ impl WallpaperApp {
         while let Ok(result) = self.preview_rx.try_recv() {
             if result.request_id != self.active_preview_request {
                 continue;
+            }
+
+            if let Some((path, work_image)) = result.cache {
+                self.preview_cache = Some(PreviewCache { path, work_image });
             }
 
             match result.rgba {
@@ -133,6 +174,9 @@ impl WallpaperApp {
             .add_filter(self.lang.images_filter(), &["jpg", "jpeg", "png", "bmp"])
             .pick_file()
         {
+            if self.wallpaper_path.as_ref() != Some(&path) {
+                self.preview_cache = None;
+            }
             self.wallpaper_path = Some(path);
             self.request_preview();
             self.status = None;
@@ -328,10 +372,10 @@ impl eframe::App for WallpaperApp {
     }
 }
 
-fn load_preview_rgba(path: &Path, style: WallpaperStyle) -> anyhow::Result<Vec<u8>> {
+fn load_preview_work_image(path: &Path) -> anyhow::Result<Arc<DynamicImage>> {
     let img = ImageReader::open(path)?.with_guessed_format()?.decode()?;
     let work = downscale_for_preview(img, PREVIEW_W * PREVIEW_WORK_SCALE, PREVIEW_H * PREVIEW_WORK_SCALE);
-    Ok(render_preview(&work, style, PREVIEW_W, PREVIEW_H))
+    Ok(Arc::new(work))
 }
 
 fn downscale_for_preview(img: DynamicImage, max_w: u32, max_h: u32) -> DynamicImage {
@@ -356,7 +400,7 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
 
     match style {
         WallpaperStyle::Stretch | WallpaperStyle::Span => {
-            let resized = img.resize_exact(width, height, FilterType::Lanczos3);
+            let resized = img.resize_exact(width, height, FilterType::Triangle);
             image::imageops::overlay(&mut canvas, &resized.to_rgba8(), 0, 0);
         }
         WallpaperStyle::Center => {
@@ -367,7 +411,7 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
             image::imageops::overlay(&mut canvas, &rgba, x, y);
         }
         WallpaperStyle::Fit => {
-            let resized = img.resize(width, height, FilterType::Lanczos3);
+            let resized = img.resize(width, height, FilterType::Triangle);
             let rgba = resized.to_rgba8();
             let (rw, rh) = rgba.dimensions();
             let x = (width as i64 - rw as i64) / 2;
@@ -375,7 +419,7 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
             image::imageops::overlay(&mut canvas, &rgba, x, y);
         }
         WallpaperStyle::Fill => {
-            let resized = img.resize_to_fill(width, height, FilterType::Lanczos3);
+            let resized = img.resize_to_fill(width, height, FilterType::Triangle);
             image::imageops::overlay(&mut canvas, &resized.to_rgba8(), 0, 0);
         }
         WallpaperStyle::Tile => {
