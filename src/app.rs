@@ -1,7 +1,9 @@
 use eframe::egui;
 use egui::ColorImage;
-use image::{imageops::FilterType, DynamicImage, RgbaImage};
-use std::path::PathBuf;
+use image::{imageops::FilterType, DynamicImage, ImageReader, RgbaImage};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 
 use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle};
 
@@ -9,19 +11,25 @@ use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle
 const PREVIEW_W: u32 = 316;
 const PREVIEW_H: u32 = 198;
 
+struct PreviewResult {
+    request_id: u64,
+    rgba: Result<Vec<u8>, String>,
+}
+
 pub struct WallpaperApp {
     /// Current UI language (derived from user locale at startup).
     lang: Language,
     /// Path selected by the user (or loaded from the registry on startup).
     wallpaper_path: Option<PathBuf>,
-    /// Decoded image corresponding to `wallpaper_path`.
-    loaded_image: Option<DynamicImage>,
     /// Currently selected display style.
     style: WallpaperStyle,
     /// egui texture used for the monitor preview.
     preview_texture: Option<egui::TextureHandle>,
-    /// Whether the preview texture needs to be re-generated.
-    preview_dirty: bool,
+    /// Monotonic id for the latest preview request.
+    active_preview_request: u64,
+    /// Channel endpoints used by background preview workers.
+    preview_tx: Sender<PreviewResult>,
+    preview_rx: Receiver<PreviewResult>,
     /// Status message shown at the bottom of the window.
     status: Option<(String, bool)>, // (text, is_error)
     /// Set to true when the user clicks "Browse…"; consumed at the next frame.
@@ -34,36 +42,76 @@ impl WallpaperApp {
         let (wallpaper_str, style) = registry::get_current_wallpaper().unwrap_or((None, None));
         let wallpaper_path = wallpaper_str.map(PathBuf::from).filter(|p| p.is_file());
         let style = style.unwrap_or_default();
-        let loaded_image = wallpaper_path.as_ref().and_then(|p| image::open(p).ok());
+        let (preview_tx, preview_rx) = mpsc::channel();
 
-        Self {
+        let mut app = Self {
             lang,
             wallpaper_path,
-            loaded_image,
             style,
             preview_texture: None,
-            preview_dirty: true,
+            active_preview_request: 0,
+            preview_tx,
+            preview_rx,
             status: None,
             pending_file_dialog: false,
+        };
+
+        if app.wallpaper_path.is_some() {
+            app.request_preview();
         }
+
+        app
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
 
-    fn update_preview(&mut self, ctx: &egui::Context) {
-        if !self.preview_dirty {
+    fn request_preview(&mut self) {
+        let Some(path) = self.wallpaper_path.clone() else {
+            self.preview_texture = None;
             return;
-        }
-        self.preview_dirty = false;
+        };
 
-        self.preview_texture = self.loaded_image.as_ref().map(|img| {
-            let rgba = render_preview(img, self.style, PREVIEW_W, PREVIEW_H);
-            let color_image = ColorImage::from_rgba_unmultiplied(
-                [PREVIEW_W as usize, PREVIEW_H as usize],
-                &rgba,
-            );
-            ctx.load_texture("wallpaper-preview", color_image, egui::TextureOptions::LINEAR)
+        self.active_preview_request = self.active_preview_request.wrapping_add(1);
+        let request_id = self.active_preview_request;
+        let style = self.style;
+        let tx = self.preview_tx.clone();
+
+        thread::spawn(move || {
+            let rgba = load_preview_rgba(&path, style).map_err(|e| e.to_string());
+            let _ = tx.send(PreviewResult { request_id, rgba });
         });
+    }
+
+    fn apply_preview_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+
+        while let Ok(result) = self.preview_rx.try_recv() {
+            if result.request_id != self.active_preview_request {
+                continue;
+            }
+
+            match result.rgba {
+                Ok(rgba) => {
+                    let color_image = ColorImage::from_rgba_unmultiplied(
+                        [PREVIEW_W as usize, PREVIEW_H as usize],
+                        &rgba,
+                    );
+                    self.preview_texture = Some(ctx.load_texture(
+                        "wallpaper-preview",
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    ));
+                }
+                Err(err) => {
+                    self.status = Some((self.lang.failed_load_image(err), true));
+                }
+            }
+            updated = true;
+        }
+
+        if updated {
+            ctx.request_repaint();
+        }
     }
 
     fn handle_file_dialog(&mut self, ctx: &egui::Context) {
@@ -76,17 +124,9 @@ impl WallpaperApp {
             .add_filter(self.lang.images_filter(), &["jpg", "jpeg", "png", "bmp"])
             .pick_file()
         {
-            match image::open(&path) {
-                Ok(img) => {
-                    self.loaded_image = Some(img);
-                    self.wallpaper_path = Some(path);
-                    self.preview_dirty = true;
-                    self.status = None;
-                }
-                Err(e) => {
-                    self.status = Some((self.lang.failed_load_image(e), true));
-                }
-            }
+            self.wallpaper_path = Some(path);
+            self.request_preview();
+            self.status = None;
         }
         ctx.request_repaint();
     }
@@ -152,7 +192,7 @@ impl eframe::App for WallpaperApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Handle deferred actions before painting.
         self.handle_file_dialog(ctx);
-        self.update_preview(ctx);
+        self.apply_preview_results(ctx);
 
         let has_image = self.wallpaper_path.is_some();
 
@@ -216,7 +256,7 @@ impl eframe::App for WallpaperApp {
                         }
                     });
                 if self.style != old_style {
-                    self.preview_dirty = true;
+                    self.request_preview();
                 }
             });
 
@@ -246,6 +286,11 @@ impl eframe::App for WallpaperApp {
             }
         });
     }
+}
+
+fn load_preview_rgba(path: &Path, style: WallpaperStyle) -> anyhow::Result<Vec<u8>> {
+    let img = ImageReader::open(path)?.with_guessed_format()?.decode()?;
+    Ok(render_preview(&img, style, PREVIEW_W, PREVIEW_H))
 }
 
 // ── Preview rendering ─────────────────────────────────────────────────────────
