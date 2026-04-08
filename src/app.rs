@@ -3,7 +3,7 @@ use egui::ColorImage;
 use image::{imageops::FilterType, DynamicImage, RgbaImage};
 use std::path::PathBuf;
 
-use crate::{registry, wallpaper_style::WallpaperStyle};
+use crate::{elevation, registry, wallpaper_style::WallpaperStyle};
 
 /// Dimensions of the wallpaper preview rendered inside the monitor mockup.
 const PREVIEW_W: u32 = 316;
@@ -98,14 +98,48 @@ impl WallpaperApp {
             return;
         }
 
-        match registry::set_wallpaper_for_current_user(&path, self.style) {
-            Ok(()) => {
+        let sid = match elevation::current_user_sid() {
+            Ok(s) => s,
+            Err(e) => {
+                self.status = Some((format!("Failed to resolve current SID: {e}"), true));
+                return;
+            }
+        };
+
+        if elevation::is_elevated() {
+            match registry::set_wallpaper_for_sid(&sid, &path, self.style) {
+                Ok(()) => {
+                    // Best-effort: refresh the current session's desktop.
+                    let _ = registry::refresh_wallpaper_session(&path);
+                    self.status = Some(("Wallpaper applied successfully.".into(), false));
+                }
+                Err(e) => {
+                    self.status = Some((format!("Failed to apply: {e}"), true));
+                }
+            }
+            return;
+        }
+
+        let broker_args = vec![
+            "--target-sid".to_owned(),
+            sid,
+            "--wallpaper".to_owned(),
+            path.to_string_lossy().into_owned(),
+            "--style".to_owned(),
+            self.style.code().to_owned(),
+        ];
+
+        match elevation::run_elevated_with_args(&broker_args) {
+            Ok(0) => {
                 // Best-effort: refresh the current session's desktop.
                 let _ = registry::refresh_wallpaper_session(&path);
                 self.status = Some(("Wallpaper applied successfully.".into(), false));
             }
+            Ok(code) => {
+                self.status = Some((format!("Elevated broker failed with exit code {code}."), true));
+            }
             Err(e) => {
-                self.status = Some((format!("Failed to apply: {e}"), true));
+                self.status = Some((format!("Elevation failed: {e}"), true));
             }
         }
     }
