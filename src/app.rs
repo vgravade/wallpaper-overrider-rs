@@ -4,12 +4,14 @@ use image::{imageops::FilterType, DynamicImage, ImageReader, RgbaImage};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
 use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle};
 
 /// Dimensions of the wallpaper preview rendered inside the monitor mockup.
 const PREVIEW_W: u32 = 316;
 const PREVIEW_H: u32 = 198;
+const PREVIEW_WORK_SCALE: u32 = 3;
 
 struct PreviewResult {
     request_id: u64,
@@ -30,6 +32,8 @@ pub struct WallpaperApp {
     /// Channel endpoints used by background preview workers.
     preview_tx: Sender<PreviewResult>,
     preview_rx: Receiver<PreviewResult>,
+    /// True while a background worker is preparing the latest preview.
+    preview_loading: bool,
     /// Status message shown at the bottom of the window.
     status: Option<(String, bool)>, // (text, is_error)
     /// Set to true when the user clicks "Browse…"; consumed at the next frame.
@@ -52,6 +56,7 @@ impl WallpaperApp {
             active_preview_request: 0,
             preview_tx,
             preview_rx,
+            preview_loading: false,
             status: None,
             pending_file_dialog: false,
         };
@@ -68,10 +73,12 @@ impl WallpaperApp {
     fn request_preview(&mut self) {
         let Some(path) = self.wallpaper_path.clone() else {
             self.preview_texture = None;
+            self.preview_loading = false;
             return;
         };
 
         self.active_preview_request = self.active_preview_request.wrapping_add(1);
+        self.preview_loading = true;
         let request_id = self.active_preview_request;
         let style = self.style;
         let tx = self.preview_tx.clone();
@@ -101,9 +108,11 @@ impl WallpaperApp {
                         color_image,
                         egui::TextureOptions::LINEAR,
                     ));
+                    self.preview_loading = false;
                 }
                 Err(err) => {
                     self.status = Some((self.lang.failed_load_image(err), true));
+                    self.preview_loading = false;
                 }
             }
             updated = true;
@@ -194,6 +203,10 @@ impl eframe::App for WallpaperApp {
         self.handle_file_dialog(ctx);
         self.apply_preview_results(ctx);
 
+        if self.preview_loading {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+
         let has_image = self.wallpaper_path.is_some();
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -230,16 +243,43 @@ impl eframe::App for WallpaperApp {
             let monitor_size = egui::vec2(356.0, 232.0);
             let (_, monitor_rect) = ui.allocate_space(monitor_size);
 
-            let painter = ui.painter();
             // Monitor bezel
-            painter.rect_filled(monitor_rect, 6.0, egui::Color32::from_gray(55));
+            ui.painter()
+                .rect_filled(monitor_rect, 6.0, egui::Color32::from_gray(55));
             // Screen area
             let screen = monitor_rect.shrink(12.0);
-            painter.rect_filled(screen, 2.0, egui::Color32::from_gray(12));
+            ui.painter()
+                .rect_filled(screen, 2.0, egui::Color32::from_gray(12));
 
             if let Some(tex) = &self.preview_texture {
                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                painter.image(tex.id(), screen, uv, egui::Color32::WHITE);
+                ui.painter().image(tex.id(), screen, uv, egui::Color32::WHITE);
+            }
+            if self.preview_loading {
+                let painter = ui.painter();
+                painter.rect_filled(screen, 2.0, egui::Color32::from_black_alpha(140));
+                let center = screen.center();
+                let t = ctx.input(|i| i.time as f32);
+                let angle = t * 6.0;
+                let radius = 12.0;
+                let p1 = egui::pos2(
+                    center.x + angle.cos() * radius,
+                    center.y + angle.sin() * radius - 4.0,
+                );
+                let p2 = egui::pos2(
+                    center.x + (angle + std::f32::consts::PI).cos() * radius,
+                    center.y + (angle + std::f32::consts::PI).sin() * radius - 4.0,
+                );
+
+                painter.circle_filled(p1, 3.5, egui::Color32::WHITE);
+                painter.circle_filled(p2, 3.0, egui::Color32::from_white_alpha(120));
+                painter.text(
+                    egui::pos2(center.x, center.y + 20.0),
+                    egui::Align2::CENTER_TOP,
+                    self.lang.preview_loading(),
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::WHITE,
+                );
             }
 
             ui.add_space(12.0);
@@ -290,7 +330,17 @@ impl eframe::App for WallpaperApp {
 
 fn load_preview_rgba(path: &Path, style: WallpaperStyle) -> anyhow::Result<Vec<u8>> {
     let img = ImageReader::open(path)?.with_guessed_format()?.decode()?;
-    Ok(render_preview(&img, style, PREVIEW_W, PREVIEW_H))
+    let work = downscale_for_preview(img, PREVIEW_W * PREVIEW_WORK_SCALE, PREVIEW_H * PREVIEW_WORK_SCALE);
+    Ok(render_preview(&work, style, PREVIEW_W, PREVIEW_H))
+}
+
+fn downscale_for_preview(img: DynamicImage, max_w: u32, max_h: u32) -> DynamicImage {
+    let (iw, ih) = (img.width(), img.height());
+    if iw <= max_w && ih <= max_h {
+        return img;
+    }
+
+    img.resize(max_w, max_h, FilterType::Triangle)
 }
 
 // ── Preview rendering ─────────────────────────────────────────────────────────

@@ -68,6 +68,13 @@ impl Language {
         }
     }
 
+    pub fn preview_loading(self) -> &'static str {
+        match self {
+            Self::English => "Loading preview...",
+            Self::French => "Chargement de l'aperçu...",
+        }
+    }
+
     pub fn apply_button(self) -> &'static str {
         match self {
             Self::English => "  Apply  ",
