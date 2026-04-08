@@ -194,15 +194,22 @@ impl WallpaperApp {
             return;
         }
 
-        let sid = match elevation::current_user_sid() {
-            Ok(s) => s,
-            Err(e) => {
-                self.status = Some((self.lang.failed_resolve_sid(e), true));
-                return;
-            }
-        };
+        // First attempt with current user context, without any elevation.
+        if let Ok(()) = registry::set_wallpaper_for_current_user(&path, self.style) {
+            let _ = registry::refresh_wallpaper_session(&path);
+            self.status = Some((self.lang.wallpaper_applied().into(), false));
+            return;
+        }
 
         if elevation::is_elevated() {
+            let sid = match elevation::current_user_sid() {
+                Ok(s) => s,
+                Err(e) => {
+                    self.status = Some((self.lang.failed_resolve_sid(e), true));
+                    return;
+                }
+            };
+
             match registry::set_wallpaper_for_sid(&sid, &path, self.style) {
                 Ok(()) => {
                     // Best-effort: refresh the current session's desktop.
@@ -215,6 +222,14 @@ impl WallpaperApp {
             }
             return;
         }
+
+        let sid = match elevation::current_user_sid() {
+            Ok(s) => s,
+            Err(e) => {
+                self.status = Some((self.lang.failed_resolve_sid(e), true));
+                return;
+            }
+        };
 
         let broker_args = vec![
             "--target-sid".to_owned(),
