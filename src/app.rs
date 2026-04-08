@@ -3,13 +3,15 @@ use egui::ColorImage;
 use image::{imageops::FilterType, DynamicImage, RgbaImage};
 use std::path::PathBuf;
 
-use crate::{elevation, registry, wallpaper_style::WallpaperStyle};
+use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle};
 
 /// Dimensions of the wallpaper preview rendered inside the monitor mockup.
 const PREVIEW_W: u32 = 316;
 const PREVIEW_H: u32 = 198;
 
 pub struct WallpaperApp {
+    /// Current UI language (derived from user locale at startup).
+    lang: Language,
     /// Path selected by the user (or loaded from the registry on startup).
     wallpaper_path: Option<PathBuf>,
     /// Decoded image corresponding to `wallpaper_path`.
@@ -27,7 +29,7 @@ pub struct WallpaperApp {
 }
 
 impl WallpaperApp {
-    pub fn new() -> Self {
+    pub fn new(lang: Language) -> Self {
         // Pre-populate from whatever is already in the registry.
         let (wallpaper_str, style) = registry::get_current_wallpaper().unwrap_or((None, None));
         let wallpaper_path = wallpaper_str.map(PathBuf::from).filter(|p| p.is_file());
@@ -35,6 +37,7 @@ impl WallpaperApp {
         let loaded_image = wallpaper_path.as_ref().and_then(|p| image::open(p).ok());
 
         Self {
+            lang,
             wallpaper_path,
             loaded_image,
             style,
@@ -70,7 +73,7 @@ impl WallpaperApp {
         self.pending_file_dialog = false;
 
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Images", &["jpg", "jpeg", "png", "bmp"])
+            .add_filter(self.lang.images_filter(), &["jpg", "jpeg", "png", "bmp"])
             .pick_file()
         {
             match image::open(&path) {
@@ -81,7 +84,7 @@ impl WallpaperApp {
                     self.status = None;
                 }
                 Err(e) => {
-                    self.status = Some((format!("Failed to load image: {e}"), true));
+                    self.status = Some((self.lang.failed_load_image(e), true));
                 }
             }
         }
@@ -90,18 +93,18 @@ impl WallpaperApp {
 
     fn apply(&mut self) {
         let Some(path) = self.wallpaper_path.clone() else {
-            self.status = Some(("No wallpaper selected.".into(), true));
+            self.status = Some((self.lang.no_wallpaper_selected().into(), true));
             return;
         };
         if !path.is_file() {
-            self.status = Some(("File no longer exists.".into(), true));
+            self.status = Some((self.lang.file_no_longer_exists().into(), true));
             return;
         }
 
         let sid = match elevation::current_user_sid() {
             Ok(s) => s,
             Err(e) => {
-                self.status = Some((format!("Failed to resolve current SID: {e}"), true));
+                self.status = Some((self.lang.failed_resolve_sid(e), true));
                 return;
             }
         };
@@ -111,10 +114,10 @@ impl WallpaperApp {
                 Ok(()) => {
                     // Best-effort: refresh the current session's desktop.
                     let _ = registry::refresh_wallpaper_session(&path);
-                    self.status = Some(("Wallpaper applied successfully.".into(), false));
+                    self.status = Some((self.lang.wallpaper_applied().into(), false));
                 }
                 Err(e) => {
-                    self.status = Some((format!("Failed to apply: {e}"), true));
+                    self.status = Some((self.lang.failed_to_apply(e), true));
                 }
             }
             return;
@@ -133,13 +136,13 @@ impl WallpaperApp {
             Ok(0) => {
                 // Best-effort: refresh the current session's desktop.
                 let _ = registry::refresh_wallpaper_session(&path);
-                self.status = Some(("Wallpaper applied successfully.".into(), false));
+                self.status = Some((self.lang.wallpaper_applied().into(), false));
             }
             Ok(code) => {
-                self.status = Some((format!("Elevated broker failed with exit code {code}."), true));
+                self.status = Some((self.lang.elevated_broker_failed(code), true));
             }
             Err(e) => {
-                self.status = Some((format!("Elevation failed: {e}"), true));
+                self.status = Some((self.lang.elevation_failed(e), true));
             }
         }
     }
@@ -157,17 +160,17 @@ impl eframe::App for WallpaperApp {
             ui.add_space(16.0);
 
             // ── Title ──────────────────────────────────────────────────────
-            ui.heading("Override Wallpaper");
+            ui.heading(self.lang.heading());
             ui.add_space(12.0);
 
             // ── File picker row ────────────────────────────────────────────
-            ui.label("Choose your picture");
+            ui.label(self.lang.choose_picture());
             ui.horizontal(|ui| {
                 let path_display = self
                     .wallpaper_path
                     .as_deref()
                     .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "(none)".into());
+                    .unwrap_or_else(|| self.lang.empty_path().into());
 
                 let mut buf = path_display.clone();
                 ui.add(
@@ -176,7 +179,7 @@ impl eframe::App for WallpaperApp {
                         .interactive(false),
                 );
 
-                if ui.button("Browse…").clicked() {
+                if ui.button(self.lang.browse_button()).clicked() {
                     self.pending_file_dialog = true;
                 }
             });
@@ -202,14 +205,14 @@ impl eframe::App for WallpaperApp {
             ui.add_space(12.0);
 
             // ── Style selector ─────────────────────────────────────────────
-            ui.label("Choose a fit");
+            ui.label(self.lang.choose_fit());
             ui.add_enabled_ui(has_image, |ui| {
                 let old_style = self.style;
                 egui::ComboBox::from_id_salt("wallpaper-style")
-                    .selected_text(self.style.label())
+                    .selected_text(self.style.label(self.lang))
                     .show_ui(ui, |ui| {
                         for &s in WallpaperStyle::all() {
-                            ui.selectable_value(&mut self.style, s, s.label());
+                            ui.selectable_value(&mut self.style, s, s.label(self.lang));
                         }
                     });
                 if self.style != old_style {
@@ -222,11 +225,11 @@ impl eframe::App for WallpaperApp {
             // ── Action buttons ─────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(has_image, |ui| {
-                    if ui.button("  Apply  ").clicked() {
+                    if ui.button(self.lang.apply_button()).clicked() {
                         self.apply();
                     }
                 });
-                if ui.button("  Close  ").clicked() {
+                if ui.button(self.lang.close_button()).clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });

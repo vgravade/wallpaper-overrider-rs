@@ -7,9 +7,11 @@ use std::path::PathBuf;
 
 mod app;
 mod elevation;
+mod i18n;
 mod registry;
 mod wallpaper_style;
 
+use i18n::Language;
 use wallpaper_style::WallpaperStyle;
 
 /// Override Windows desktop wallpaper settings via registry policies.
@@ -69,18 +71,19 @@ fn main() -> anyhow::Result<()> {
     }
 
     // ── GUI mode ──────────────────────────────────────────────────────────
+    let lang = Language::detect();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Wallpaper Overrider")
+            .with_title(lang.app_title())
             .with_inner_size([460.0, 530.0])
             .with_resizable(false),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Wallpaper Overrider",
+        lang.app_title(),
         options,
-        Box::new(|_cc| Ok(Box::new(app::WallpaperApp::new()))),
+        Box::new(move |_cc| Ok(Box::new(app::WallpaperApp::new(lang)))),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 

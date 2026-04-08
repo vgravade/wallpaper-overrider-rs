@@ -1,3 +1,5 @@
+use crate::i18n::Language;
+
 /// Wallpaper display style — mirrors the registry codes used by Windows.
 ///
 /// Registry value `WallpaperStyle` under
@@ -26,14 +28,24 @@ impl WallpaperStyle {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Center => "Center",
-            Self::Tile => "Tile",
-            Self::Stretch => "Stretch",
-            Self::Fit => "Fit",
-            Self::Fill => "Fill",
-            Self::Span => "Span",
+    pub fn label(self, lang: Language) -> &'static str {
+        match lang {
+            Language::English => match self {
+                Self::Center => "Center",
+                Self::Tile => "Tile",
+                Self::Stretch => "Stretch",
+                Self::Fit => "Fit",
+                Self::Fill => "Fill",
+                Self::Span => "Span",
+            },
+            Language::French => match self {
+                Self::Center => "Centrer",
+                Self::Tile => "Mosaïque",
+                Self::Stretch => "Étirer",
+                Self::Fit => "Ajuster",
+                Self::Fill => "Remplir",
+                Self::Span => "Étendre",
+            },
         }
     }
 
