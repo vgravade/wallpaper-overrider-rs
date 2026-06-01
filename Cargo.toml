@@ -1,6 +1,6 @@
 [package]
 name = "wallpaper-overrider-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Override Windows wallpaper settings via registry policies"
 authors = ["Vincent Gravade"]
