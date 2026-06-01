@@ -93,3 +93,48 @@ impl std::str::FromStr for WallpaperStyle {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_codes_round_trip() {
+        let cases = [
+            ("0", WallpaperStyle::Center),
+            ("1", WallpaperStyle::Tile),
+            ("2", WallpaperStyle::Stretch),
+            ("3", WallpaperStyle::Fit),
+            ("4", WallpaperStyle::Fill),
+            ("5", WallpaperStyle::Span),
+        ];
+
+        for (code, style) in cases {
+            assert_eq!(style.code(), code);
+            assert_eq!(WallpaperStyle::from_code(code), Some(style));
+            assert_eq!(code.parse::<WallpaperStyle>().unwrap(), style);
+        }
+    }
+
+    #[test]
+    fn parses_style_names_case_insensitively() {
+        let cases = [
+            ("center", WallpaperStyle::Center),
+            (" TILE ", WallpaperStyle::Tile),
+            ("Stretch", WallpaperStyle::Stretch),
+            ("fit", WallpaperStyle::Fit),
+            ("FILL", WallpaperStyle::Fill),
+            ("span", WallpaperStyle::Span),
+        ];
+
+        for (input, style) in cases {
+            assert_eq!(input.parse::<WallpaperStyle>().unwrap(), style);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_styles() {
+        assert!(WallpaperStyle::from_code("6").is_none());
+        assert!("cover".parse::<WallpaperStyle>().is_err());
+    }
+}

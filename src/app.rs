@@ -463,3 +463,77 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
 
     canvas.into_raw()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BG: [u8; 4] = [20, 20, 20, 255];
+    const RED: [u8; 4] = [220, 0, 0, 255];
+    const BLUE: [u8; 4] = [0, 30, 220, 255];
+
+    fn solid_image(width: u32, height: u32, rgba: [u8; 4]) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(width, height, image::Rgba(rgba)))
+    }
+
+    fn pixel(buf: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * width + x) * 4) as usize;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    }
+
+    #[test]
+    fn center_keeps_image_size_and_uses_background() {
+        let img = solid_image(2, 2, RED);
+
+        let preview = render_preview(&img, WallpaperStyle::Center, 4, 4);
+
+        assert_eq!(pixel(&preview, 4, 0, 0), BG);
+        assert_eq!(pixel(&preview, 4, 1, 1), RED);
+        assert_eq!(pixel(&preview, 4, 2, 2), RED);
+        assert_eq!(pixel(&preview, 4, 3, 3), BG);
+    }
+
+    #[test]
+    fn tile_repeats_the_source_image() {
+        let img = DynamicImage::ImageRgba8(RgbaImage::from_fn(2, 1, |x, _| {
+            if x == 0 {
+                image::Rgba(RED)
+            } else {
+                image::Rgba(BLUE)
+            }
+        }));
+
+        let preview = render_preview(&img, WallpaperStyle::Tile, 5, 2);
+
+        assert_eq!(pixel(&preview, 5, 0, 0), RED);
+        assert_eq!(pixel(&preview, 5, 1, 0), BLUE);
+        assert_eq!(pixel(&preview, 5, 2, 0), RED);
+        assert_eq!(pixel(&preview, 5, 3, 1), BLUE);
+        assert_eq!(pixel(&preview, 5, 4, 1), RED);
+    }
+
+    #[test]
+    fn fit_preserves_aspect_ratio_with_letterbox() {
+        let img = solid_image(4, 2, RED);
+
+        let preview = render_preview(&img, WallpaperStyle::Fit, 4, 4);
+
+        assert_eq!(pixel(&preview, 4, 0, 0), BG);
+        assert_eq!(pixel(&preview, 4, 0, 1), RED);
+        assert_eq!(pixel(&preview, 4, 3, 2), RED);
+        assert_eq!(pixel(&preview, 4, 3, 3), BG);
+    }
+
+    #[test]
+    fn stretch_fills_the_entire_preview() {
+        let img = solid_image(1, 1, RED);
+
+        let preview = render_preview(&img, WallpaperStyle::Stretch, 3, 2);
+
+        for y in 0..2 {
+            for x in 0..3 {
+                assert_eq!(pixel(&preview, 3, x, y), RED);
+            }
+        }
+    }
+}
