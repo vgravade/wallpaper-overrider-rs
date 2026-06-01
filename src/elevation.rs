@@ -52,14 +52,14 @@ fn quote_cmd_arg(arg: &str) -> String {
 /// Returns `true` when the current process token has the elevated privilege bit set.
 #[cfg(windows)]
 pub fn is_elevated() -> bool {
-    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     unsafe {
-        let mut token: isize = 0;
+        let mut token: HANDLE = std::ptr::null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
@@ -90,13 +90,13 @@ pub fn is_elevated() -> bool {
 #[cfg(windows)]
 pub fn current_user_sid() -> Result<String> {
     use std::slice;
-    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     unsafe {
-        let mut token: isize = 0;
+        let mut token: HANDLE = std::ptr::null_mut();
         anyhow::ensure!(
             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) != 0,
             "OpenProcessToken failed"
@@ -104,7 +104,10 @@ pub fn current_user_sid() -> Result<String> {
 
         let mut needed: u32 = 0;
         let _ = GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
-        anyhow::ensure!(needed > 0, "GetTokenInformation returned no TOKEN_USER data");
+        anyhow::ensure!(
+            needed > 0,
+            "GetTokenInformation returned no TOKEN_USER data"
+        );
 
         let mut buf = vec![0u8; needed as usize];
         anyhow::ensure!(
@@ -124,7 +127,10 @@ pub fn current_user_sid() -> Result<String> {
         let converted = ConvertSidToStringSidW(token_user.User.Sid, &mut sid_wide_ptr) != 0;
         CloseHandle(token);
 
-        anyhow::ensure!(converted && !sid_wide_ptr.is_null(), "ConvertSidToStringSidW failed");
+        anyhow::ensure!(
+            converted && !sid_wide_ptr.is_null(),
+            "ConvertSidToStringSidW failed"
+        );
 
         let mut len = 0usize;
         while *sid_wide_ptr.add(len) != 0 {
@@ -148,7 +154,9 @@ pub fn current_user_sid() -> Result<String> {
 #[cfg(windows)]
 pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
     use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, WaitForSingleObject, INFINITE,
+    };
     use windows_sys::Win32::UI::Shell::{
         ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
     };
@@ -176,7 +184,7 @@ pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
     let ok = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
     anyhow::ensure!(ok, "ShellExecuteExW failed to launch elevated process");
     anyhow::ensure!(
-        exec_info.hProcess != 0,
+        !exec_info.hProcess.is_null(),
         "ShellExecuteExW did not return a process handle"
     );
 
@@ -206,9 +214,7 @@ pub fn run_elevated_with_args(_args: &[String]) -> Result<u32> {
 /// The caller should exit immediately after this returns `Ok(())`.
 #[cfg(windows)]
 pub fn relaunch_elevated() -> Result<()> {
-    let args: Vec<String> = std::env::args()
-        .skip(1)
-        .collect();
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let exit_code = run_elevated_with_args(&args)?;
     anyhow::ensure!(
         exit_code == 0,

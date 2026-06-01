@@ -257,10 +257,12 @@ impl WallpaperApp {
 }
 
 impl eframe::App for WallpaperApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // Handle deferred actions before painting.
-        self.handle_file_dialog(ctx);
-        self.apply_preview_results(ctx);
+        self.handle_file_dialog(&ctx);
+        self.apply_preview_results(&ctx);
 
         if self.preview_loading {
             ctx.request_repaint_after(Duration::from_millis(16));
@@ -268,7 +270,7 @@ impl eframe::App for WallpaperApp {
 
         let has_image = self.wallpaper_path.is_some();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.add_space(16.0);
 
             // ── Title ──────────────────────────────────────────────────────
@@ -312,7 +314,8 @@ impl eframe::App for WallpaperApp {
 
             if let Some(tex) = &self.preview_texture {
                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                ui.painter().image(tex.id(), screen, uv, egui::Color32::WHITE);
+                ui.painter()
+                    .image(tex.id(), screen, uv, egui::Color32::WHITE);
             }
             if self.preview_loading {
                 let painter = ui.painter();
@@ -389,7 +392,11 @@ impl eframe::App for WallpaperApp {
 
 fn load_preview_work_image(path: &Path) -> anyhow::Result<Arc<DynamicImage>> {
     let img = ImageReader::open(path)?.with_guessed_format()?.decode()?;
-    let work = downscale_for_preview(img, PREVIEW_W * PREVIEW_WORK_SCALE, PREVIEW_H * PREVIEW_WORK_SCALE);
+    let work = downscale_for_preview(
+        img,
+        PREVIEW_W * PREVIEW_WORK_SCALE,
+        PREVIEW_H * PREVIEW_WORK_SCALE,
+    );
     Ok(Arc::new(work))
 }
 

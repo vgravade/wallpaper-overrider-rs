@@ -11,17 +11,17 @@ name = "wallpaper-overrider"
 path = "src/main.rs"
 
 [dependencies]
-eframe = "0.31"
-egui = "0.31"
+eframe = "0.34"
+egui = "0.34"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
-winreg = "0.52"
-rfd = "0.15"
+winreg = "0.56"
+rfd = "0.17"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 sys-locale = "0.3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
