@@ -1,6 +1,63 @@
 use anyhow::Result;
 
 #[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+
+#[cfg(windows)]
+struct OwnedHandle(HANDLE);
+
+#[cfg(windows)]
+impl OwnedHandle {
+    fn new(handle: HANDLE) -> Option<Self> {
+        if handle.is_null() {
+            None
+        } else {
+            Some(Self(handle))
+        }
+    }
+
+    fn get(&self) -> HANDLE {
+        self.0
+    }
+}
+
+#[cfg(windows)]
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+struct LocalWideString(*mut u16);
+
+#[cfg(windows)]
+impl LocalWideString {
+    fn new(ptr: *mut u16) -> Option<Self> {
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self(ptr))
+        }
+    }
+
+    fn as_ptr(&self) -> *mut u16 {
+        self.0
+    }
+}
+
+#[cfg(windows)]
+impl Drop for LocalWideString {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows_sys::Win32::Foundation::LocalFree(self.0.cast());
+        }
+    }
+}
+
+#[cfg(windows)]
 fn to_wide_null(s: &str) -> Vec<u16> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -52,7 +109,6 @@ fn quote_cmd_arg(arg: &str) -> String {
 /// Returns `true` when the current process token has the elevated privilege bit set.
 #[cfg(windows)]
 pub fn is_elevated() -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     };
@@ -63,19 +119,20 @@ pub fn is_elevated() -> bool {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
+        let Some(token) = OwnedHandle::new(token) else {
+            return false;
+        };
 
         let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
         let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
 
         let ok = GetTokenInformation(
-            token,
+            token.get(),
             TokenElevation,
             std::ptr::addr_of_mut!(elevation).cast(),
             std::mem::size_of::<TOKEN_ELEVATION>() as u32,
             &mut size,
         ) != 0;
-
-        CloseHandle(token);
 
         ok && elevation.TokenIsElevated != 0
     }
@@ -90,7 +147,6 @@ pub fn is_elevated() -> bool {
 #[cfg(windows)]
 pub fn current_user_sid() -> Result<String> {
     use std::slice;
-    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -101,9 +157,11 @@ pub fn current_user_sid() -> Result<String> {
             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) != 0,
             "OpenProcessToken failed"
         );
+        let token = OwnedHandle::new(token)
+            .ok_or_else(|| anyhow::anyhow!("OpenProcessToken returned null"))?;
 
         let mut needed: u32 = 0;
-        let _ = GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed);
+        let _ = GetTokenInformation(token.get(), TokenUser, std::ptr::null_mut(), 0, &mut needed);
         anyhow::ensure!(
             needed > 0,
             "GetTokenInformation returned no TOKEN_USER data"
@@ -112,7 +170,7 @@ pub fn current_user_sid() -> Result<String> {
         let mut buf = vec![0u8; needed as usize];
         anyhow::ensure!(
             GetTokenInformation(
-                token,
+                token.get(),
                 TokenUser,
                 buf.as_mut_ptr().cast(),
                 needed,
@@ -125,21 +183,20 @@ pub fn current_user_sid() -> Result<String> {
         let mut sid_wide_ptr: *mut u16 = std::ptr::null_mut();
 
         let converted = ConvertSidToStringSidW(token_user.User.Sid, &mut sid_wide_ptr) != 0;
-        CloseHandle(token);
-
         anyhow::ensure!(
             converted && !sid_wide_ptr.is_null(),
             "ConvertSidToStringSidW failed"
         );
+        let sid_wide = LocalWideString::new(sid_wide_ptr)
+            .ok_or_else(|| anyhow::anyhow!("ConvertSidToStringSidW returned null"))?;
 
         let mut len = 0usize;
-        while *sid_wide_ptr.add(len) != 0 {
+        while *sid_wide.as_ptr().add(len) != 0 {
             len += 1;
         }
-        let slice = slice::from_raw_parts(sid_wide_ptr, len);
+        let slice = slice::from_raw_parts(sid_wide.as_ptr(), len);
         let sid = String::from_utf16(slice).map_err(|_| anyhow::anyhow!("Invalid SID UTF-16"))?;
 
-        let _ = LocalFree(sid_wide_ptr.cast());
         Ok(sid)
     }
 }
@@ -153,7 +210,6 @@ pub fn current_user_sid() -> Result<String> {
 /// Returns the elevated process exit code.
 #[cfg(windows)]
 pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
-    use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, WaitForSingleObject, INFINITE,
     };
@@ -179,26 +235,23 @@ pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
     exec_info.lpVerb = verb_w.as_ptr();
     exec_info.lpFile = exe_w.as_ptr();
     exec_info.lpParameters = args_w.as_ptr();
-    exec_info.nShow = SW_SHOW as i32;
+    exec_info.nShow = SW_SHOW;
 
     let ok = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
     anyhow::ensure!(ok, "ShellExecuteExW failed to launch elevated process");
-    anyhow::ensure!(
-        !exec_info.hProcess.is_null(),
-        "ShellExecuteExW did not return a process handle"
-    );
+    let process = OwnedHandle::new(exec_info.hProcess)
+        .ok_or_else(|| anyhow::anyhow!("ShellExecuteExW did not return a process handle"))?;
 
     unsafe {
-        let wait_res = WaitForSingleObject(exec_info.hProcess, INFINITE);
+        let wait_res = WaitForSingleObject(process.get(), INFINITE);
         anyhow::ensure!(wait_res == 0, "WaitForSingleObject failed ({wait_res})");
 
         let mut exit_code: u32 = 259; // STILL_ACTIVE
         anyhow::ensure!(
-            GetExitCodeProcess(exec_info.hProcess, &mut exit_code) != 0,
+            GetExitCodeProcess(process.get(), &mut exit_code) != 0,
             "GetExitCodeProcess failed"
         );
 
-        CloseHandle(exec_info.hProcess);
         Ok(exit_code)
     }
 }

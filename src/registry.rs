@@ -74,7 +74,7 @@ pub fn refresh_wallpaper_session(path: &Path) -> Result<()> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
+        SystemParametersInfoW, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
     };
 
     let wide: Vec<u16> = OsStr::new(path)
@@ -87,7 +87,7 @@ pub fn refresh_wallpaper_session(path: &Path) -> Result<()> {
             SPI_SETDESKWALLPAPER,
             0,
             wide.as_ptr() as *mut _,
-            SPIF_UPDATEINIFILE,
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
         ) != 0
     };
 
