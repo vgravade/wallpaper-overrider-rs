@@ -14,6 +14,20 @@ use std::{
     thread,
 };
 
+use windows::{
+    core::{w, PCWSTR},
+    Win32::{
+        Foundation::HWND as WindowsHwnd,
+        System::Com::{
+            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        },
+        UI::Shell::{
+            Common::COMDLG_FILTERSPEC, FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST,
+            FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, SIGDN_FILESYSPATH,
+        },
+    },
+};
 use windows_sys::Win32::{
     Foundation::{
         GetLastError, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
@@ -31,10 +45,6 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Controls::{
-            Dialogs::{
-                GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_NOCHANGEDIR,
-                OFN_PATHMUSTEXIST, OPENFILENAMEW,
-            },
             DRAWITEMSTRUCT, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
             TTM_SETTOOLINFOW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
         },
@@ -142,6 +152,29 @@ struct ApplyResult {
     path: PathBuf,
     style: WallpaperStyle,
     result: Result<(), String>,
+}
+
+struct ComApartment {
+    needs_uninit: bool,
+}
+
+impl ComApartment {
+    fn init() -> Self {
+        let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        Self {
+            needs_uninit: result.is_ok(),
+        }
+    }
+}
+
+impl Drop for ComApartment {
+    fn drop(&mut self) {
+        if self.needs_uninit {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1563,32 +1596,51 @@ fn build_preview_bitmap(path: &Path, style: WallpaperStyle) -> anyhow::Result<Pr
 }
 
 fn open_image_dialog(owner: HWND, lang: Language) -> Option<PathBuf> {
-    let mut file_buffer = [0u16; 4096];
-    let mut filter = wide(&format!(
-        "{}\0*.jpg;*.jpeg;*.png;*.bmp\0All files\0*.*\0",
-        lang.images_filter()
-    ));
-    filter.push(0);
+    open_image_dialog_modern(owner, lang).ok().flatten()
+}
 
-    let mut ofn: OPENFILENAMEW = unsafe { zeroed() };
-    ofn.lStructSize = size_of::<OPENFILENAMEW>() as u32;
-    ofn.hwndOwner = owner;
-    ofn.lpstrFilter = filter.as_ptr();
-    ofn.lpstrFile = file_buffer.as_mut_ptr();
-    ofn.nMaxFile = file_buffer.len() as u32;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
+fn open_image_dialog_modern(owner: HWND, lang: Language) -> windows::core::Result<Option<PathBuf>> {
+    let _com = ComApartment::init();
+    let dialog: IFileOpenDialog =
+        unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)? };
 
-    let ok = unsafe { GetOpenFileNameW(&mut ofn) != 0 };
-    if !ok {
-        return None;
+    let options = FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST;
+    unsafe {
+        dialog.SetOptions(options)?;
     }
 
-    let len = file_buffer.iter().position(|ch| *ch == 0).unwrap_or(0);
-    if len == 0 {
-        return None;
+    let images_name = wide(lang.images_filter());
+    let images_spec = wide("*.jpg;*.jpeg;*.png;*.bmp");
+    let all_name = w!("All files");
+    let all_spec = w!("*.*");
+    let filters = [
+        COMDLG_FILTERSPEC {
+            pszName: PCWSTR(images_name.as_ptr()),
+            pszSpec: PCWSTR(images_spec.as_ptr()),
+        },
+        COMDLG_FILTERSPEC {
+            pszName: all_name,
+            pszSpec: all_spec,
+        },
+    ];
+    unsafe {
+        dialog.SetFileTypes(&filters)?;
+        dialog.SetFileTypeIndex(1)?;
     }
 
-    Some(PathBuf::from(String::from_utf16_lossy(&file_buffer[..len])))
+    let result = unsafe { dialog.Show(Some(WindowsHwnd(owner))) };
+    if result.is_err() {
+        return Ok(None);
+    }
+
+    let item = unsafe { dialog.GetResult()? };
+    let path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH)? };
+    let path_string = unsafe { path.to_string()? };
+    unsafe {
+        CoTaskMemFree(Some(path.as_ptr().cast()));
+    }
+
+    Ok(Some(PathBuf::from(path_string)))
 }
 
 fn first_dropped_file(drop: HDROP) -> Option<PathBuf> {
