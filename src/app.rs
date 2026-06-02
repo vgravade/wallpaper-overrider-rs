@@ -22,33 +22,36 @@ use windows_sys::Win32::{
         Dwm::DwmSetWindowAttribute,
         Gdi::{
             BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-            FillRect, GetStockObject, InvalidateRect, SelectObject, SetBkColor, SetBkMode,
-            SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-            COLOR_WINDOW, DEFAULT_GUI_FONT, DIB_RGB_COLORS, HBRUSH, HDC, HFONT, PAINTSTRUCT,
-            RGBQUAD, SRCCOPY, TRANSPARENT,
+            FillRect, FrameRect, GetStockObject, InvalidateRect, SelectObject, SetBkColor,
+            SetBkMode, SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER,
+            BI_RGB, COLOR_WINDOW, DEFAULT_GUI_FONT, DIB_RGB_COLORS, HBRUSH, HDC, HFONT,
+            PAINTSTRUCT, RGBQUAD, SRCCOPY, TRANSPARENT,
         },
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::Dialogs::{
-            GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_NOCHANGEDIR,
-            OFN_PATHMUSTEXIST, OPENFILENAMEW,
+        Controls::{
+            Dialogs::{
+                GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_NOCHANGEDIR,
+                OFN_PATHMUSTEXIST, OPENFILENAMEW,
+            },
+            DRAWITEMSTRUCT,
         },
         HiDpi::{GetDpiForSystem, GetDpiForWindow, SystemParametersInfoForDpi},
         Input::KeyboardAndMouse::EnableWindow,
         WindowsAndMessaging::{
             AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-            GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, LoadCursorW,
-            PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowLongPtrW,
-            SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, CBN_SELCHANGE,
-            CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CREATESTRUCTW,
-            ES_AUTOHSCROLL, ES_READONLY, GWLP_USERDATA, HMENU, IDC_ARROW, MSG, NONCLIENTMETRICSW,
-            SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
-            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT,
-            WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
-            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
-            WS_TABSTOP, WS_VISIBLE,
+            GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
+            GetWindowTextW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
+            SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
+            TranslateMessage, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
+            CB_SETCURSEL, CREATESTRUCTW, ES_AUTOHSCROLL, ES_READONLY, GWLP_USERDATA, HMENU,
+            IDC_ARROW, MSG, NONCLIENTMETRICSW, SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND,
+            WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
+            WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW,
+            WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED,
+            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -91,6 +94,10 @@ const DWMWCP_ROUND: u32 = 2;
 
 const SS_NOPREFIX: u32 = 0x0000_0080;
 const SS_ENDELLIPSIS: u32 = 0x0000_4000;
+const BS_OWNERDRAW: u32 = 0x0000_000b;
+const ODS_SELECTED: u32 = 0x0001;
+const ODS_DISABLED: u32 = 0x0004;
+const ODS_HOTLIGHT: u32 = 0x0040;
 
 const ID_BROWSE: isize = 1001;
 const ID_STYLE: isize = 1002;
@@ -147,6 +154,17 @@ struct Palette {
     preview_empty_text: u32,
     label_text: u32,
     status_text: u32,
+    button_bg: u32,
+    button_hover_bg: u32,
+    button_pressed_bg: u32,
+    button_border: u32,
+    button_text: u32,
+    button_disabled_bg: u32,
+    button_disabled_text: u32,
+    accent_bg: u32,
+    accent_hover_bg: u32,
+    accent_pressed_bg: u32,
+    accent_text: u32,
 }
 
 impl UiTheme {
@@ -173,6 +191,17 @@ impl UiTheme {
                 preview_empty_text: rgb(77, 85, 99),
                 label_text: rgb(31, 41, 55),
                 status_text: rgb(75, 85, 99),
+                button_bg: rgb(255, 255, 255),
+                button_hover_bg: rgb(242, 246, 252),
+                button_pressed_bg: rgb(225, 232, 242),
+                button_border: rgb(203, 213, 225),
+                button_text: rgb(31, 41, 55),
+                button_disabled_bg: rgb(229, 234, 242),
+                button_disabled_text: rgb(139, 148, 163),
+                accent_bg: rgb(0, 95, 184),
+                accent_hover_bg: rgb(0, 103, 192),
+                accent_pressed_bg: rgb(0, 80, 158),
+                accent_text: rgb(255, 255, 255),
             },
             Self::Dark => Palette {
                 window_bg: rgb(30, 32, 36),
@@ -182,6 +211,17 @@ impl UiTheme {
                 preview_empty_text: rgb(190, 198, 211),
                 label_text: rgb(238, 242, 247),
                 status_text: rgb(198, 205, 217),
+                button_bg: rgb(45, 49, 56),
+                button_hover_bg: rgb(55, 60, 69),
+                button_pressed_bg: rgb(38, 42, 49),
+                button_border: rgb(76, 84, 97),
+                button_text: rgb(241, 245, 249),
+                button_disabled_bg: rgb(39, 42, 48),
+                button_disabled_text: rgb(118, 127, 142),
+                accent_bg: rgb(96, 165, 250),
+                accent_hover_bg: rgb(125, 181, 252),
+                accent_pressed_bg: rgb(69, 142, 230),
+                accent_text: rgb(5, 10, 20),
             },
         }
     }
@@ -361,6 +401,9 @@ impl NativeApp {
         unsafe {
             InvalidateRect(self.hwnd, null(), 1);
             InvalidateRect(self.preview_hwnd, null(), 1);
+            InvalidateRect(self.browse_hwnd, null(), 1);
+            InvalidateRect(self.apply_hwnd, null(), 1);
+            InvalidateRect(self.close_hwnd, null(), 1);
         }
     }
 
@@ -397,6 +440,7 @@ impl NativeApp {
     fn refresh_apply_enabled(&self) {
         unsafe {
             EnableWindow(self.apply_hwnd, self.can_apply() as i32);
+            InvalidateRect(self.apply_hwnd, null(), 1);
         }
     }
 
@@ -550,6 +594,7 @@ unsafe extern "system" fn window_proc(
             WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
                 style_text_control(wparam as HDC, lparam as HWND, app)
             }
+            WM_DRAWITEM => draw_button(lparam as *const DRAWITEMSTRUCT, app),
             WM_COMMAND => {
                 let id = loword(wparam) as isize;
                 let notification = hiword(wparam) as u32;
@@ -678,7 +723,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         app.hwnd,
         "BUTTON",
         app.lang.browse_button(),
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP | BS_OWNERDRAW,
         ID_BROWSE,
         null_mut(),
     )?;
@@ -727,7 +772,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         app.hwnd,
         "BUTTON",
         app.lang.apply_button(),
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP | BS_OWNERDRAW,
         ID_APPLY,
         null_mut(),
     )?;
@@ -736,7 +781,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         app.hwnd,
         "BUTTON",
         app.lang.close_button(),
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP | BS_OWNERDRAW,
         ID_CLOSE,
         null_mut(),
     )?;
@@ -897,6 +942,94 @@ fn style_text_control(hdc: HDC, control: HWND, app: &NativeApp) -> LRESULT {
     }
 
     app.window_bg_brush.get() as LRESULT
+}
+
+fn draw_button(item: *const DRAWITEMSTRUCT, app: &NativeApp) -> LRESULT {
+    if item.is_null() {
+        return 0;
+    }
+
+    let item = unsafe { &*item };
+    let palette = app.palette();
+    let is_accent = item.CtlID as isize == ID_APPLY;
+    let disabled = item.itemState & ODS_DISABLED != 0;
+    let pressed = item.itemState & ODS_SELECTED != 0;
+    let hot = item.itemState & ODS_HOTLIGHT != 0;
+
+    let (bg, text) = if disabled {
+        (palette.button_disabled_bg, palette.button_disabled_text)
+    } else if is_accent {
+        let bg = if pressed {
+            palette.accent_pressed_bg
+        } else if hot {
+            palette.accent_hover_bg
+        } else {
+            palette.accent_bg
+        };
+        (bg, palette.accent_text)
+    } else {
+        let bg = if pressed {
+            palette.button_pressed_bg
+        } else if hot {
+            palette.button_hover_bg
+        } else {
+            palette.button_bg
+        };
+        (bg, palette.button_text)
+    };
+
+    let (Some(bg_brush), Some(border_brush)) = (
+        OwnedBrush::solid(bg),
+        OwnedBrush::solid(palette.button_border),
+    ) else {
+        return 1;
+    };
+
+    let mut rect = item.rcItem;
+    unsafe {
+        FillRect(item.hDC, &rect, bg_brush.get());
+        FrameRect(item.hDC, &rect, border_brush.get());
+        SetBkMode(item.hDC, TRANSPARENT as i32);
+        SetTextColor(item.hDC, text);
+    }
+
+    rect.left += 10;
+    rect.right -= 10;
+    if pressed {
+        rect.left += 1;
+        rect.top += 1;
+    }
+
+    let label = button_text(item.hwndItem);
+    let label = wide(&label);
+    let previous_font = unsafe { SelectObject(item.hDC, app.ui_font) };
+    unsafe {
+        DrawTextW(
+            item.hDC,
+            label.as_ptr(),
+            -1,
+            &mut rect,
+            windows_sys::Win32::Graphics::Gdi::DT_CENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
+        );
+        if !previous_font.is_null() {
+            SelectObject(item.hDC, previous_font);
+        }
+    }
+
+    1
+}
+
+fn button_text(hwnd: HWND) -> String {
+    let len = unsafe { GetWindowTextLengthW(hwnd) };
+    if len <= 0 {
+        return String::new();
+    }
+
+    let mut buffer = vec![0u16; len as usize + 1];
+    let copied = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    String::from_utf16_lossy(&buffer[..copied.max(0) as usize])
 }
 
 fn enable_modern_window_chrome(hwnd: HWND, theme: UiTheme) {
