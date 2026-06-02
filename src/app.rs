@@ -79,7 +79,7 @@ const PREVIEW_MAX_DECODE_DIMENSION: u32 = 32_768;
 const PREVIEW_MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 
 const WINDOW_W: i32 = 560;
-const WINDOW_H: i32 = 562;
+const WINDOW_H: i32 = 572;
 const PREVIEW_X: i32 = 24;
 const PREVIEW_Y: i32 = 24;
 const PREVIEW_VIEW_W: i32 = 512;
@@ -96,7 +96,7 @@ const BUTTON_W: i32 = 106;
 const BUTTON_H: i32 = 30;
 const STYLE_W: i32 = 220;
 const STATUS_X: i32 = 24;
-const STATUS_Y: i32 = 482;
+const STATUS_Y: i32 = 492;
 const STATUS_H: i32 = 18;
 const CONTENT_RIGHT_MARGIN: i32 = 24;
 const CONTROL_GAP: i32 = 8;
@@ -253,8 +253,8 @@ impl UiTheme {
                 accent_text: rgb(255, 255, 255),
                 path_bg: rgb(255, 255, 255),
                 path_border: rgb(203, 213, 225),
-                path_icon_bg: rgb(219, 234, 254),
-                path_icon_text: rgb(0, 95, 184),
+                path_icon_bg: rgb(0, 95, 184),
+                path_icon_text: rgb(255, 255, 255),
                 path_text: rgb(31, 41, 55),
             },
             Self::Dark => Palette {
@@ -281,8 +281,8 @@ impl UiTheme {
                 accent_text: rgb(5, 10, 20),
                 path_bg: rgb(45, 49, 56),
                 path_border: rgb(76, 84, 97),
-                path_icon_bg: rgb(30, 64, 111),
-                path_icon_text: rgb(191, 219, 254),
+                path_icon_bg: rgb(96, 165, 250),
+                path_icon_text: rgb(5, 10, 20),
                 path_text: rgb(241, 245, 249),
             },
         }
@@ -1156,11 +1156,11 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         SetBkMode(hdc, TRANSPARENT as i32);
     }
 
-    let icon_size = app.scale(18);
+    let icon_size = app.scale(22);
     let icon = RECT {
-        left: rect.left + app.scale(8),
+        left: rect.left + app.scale(6),
         top: rect.top + ((rect.bottom - rect.top - icon_size) / 2),
-        right: rect.left + app.scale(8) + icon_size,
+        right: rect.left + app.scale(6) + icon_size,
         bottom: rect.top + ((rect.bottom - rect.top - icon_size) / 2) + icon_size,
     };
     unsafe {
@@ -1202,29 +1202,36 @@ fn paint_image_glyph(hdc: HDC, rect: RECT, color: u32) {
         return;
     };
     let frame = RECT {
-        left: rect.left + 4,
+        left: rect.left + 3,
         top: rect.top + 4,
-        right: rect.right - 4,
-        bottom: rect.bottom - 4,
+        right: rect.right - 3,
+        bottom: rect.bottom - 3,
     };
     unsafe {
         FrameRect(hdc, &frame, brush.get());
     }
 
     let sun = RECT {
-        left: frame.right - 4,
+        left: frame.right - 5,
         top: frame.top + 2,
         right: frame.right - 2,
-        bottom: frame.top + 4,
+        bottom: frame.top + 5,
     };
     let mountain = RECT {
         left: frame.left + 2,
-        top: frame.bottom - 5,
+        top: frame.bottom - 6,
         right: frame.right - 2,
         bottom: frame.bottom - 2,
     };
+    let ridge = RECT {
+        left: frame.left + 5,
+        top: frame.bottom - 9,
+        right: frame.right - 5,
+        bottom: frame.bottom - 6,
+    };
     unsafe {
         FillRect(hdc, &sun, brush.get());
+        FillRect(hdc, &ridge, brush.get());
         FillRect(hdc, &mountain, brush.get());
     }
 }
