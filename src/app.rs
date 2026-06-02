@@ -18,12 +18,15 @@ use windows_sys::Win32::{
     Foundation::{
         GetLastError, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
     },
-    Graphics::Gdi::{
-        BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-        FillRect, GetStockObject, InvalidateRect, SetBkMode, SetTextColor, StretchDIBits,
-        UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, COLOR_BTNFACE, COLOR_WINDOW,
-        DEFAULT_GUI_FONT, DIB_RGB_COLORS, HBRUSH, HDC, HFONT, PAINTSTRUCT, RGBQUAD, SRCCOPY,
-        TRANSPARENT,
+    Graphics::{
+        Dwm::DwmSetWindowAttribute,
+        Gdi::{
+            BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
+            FillRect, GetStockObject, InvalidateRect, SelectObject, SetBkColor, SetBkMode,
+            SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+            COLOR_WINDOW, DEFAULT_GUI_FONT, DIB_RGB_COLORS, HBRUSH, HDC, HFONT, PAINTSTRUCT,
+            RGBQUAD, SRCCOPY, TRANSPARENT,
+        },
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -41,10 +44,10 @@ use windows_sys::Win32::{
             CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CREATESTRUCTW,
             ES_AUTOHSCROLL, ES_READONLY, GWLP_USERDATA, HMENU, IDC_ARROW, MSG, NONCLIENTMETRICSW,
             SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_DESTROY,
-            WM_DPICHANGED, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SIZE, WNDCLASSW, WS_CAPTION,
-            WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
-            WS_TABSTOP, WS_VISIBLE,
+            SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
+            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT,
+            WM_SETFONT, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+            WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -57,29 +60,39 @@ const PREVIEW_WORK_SCALE: u32 = 2;
 const PREVIEW_MAX_DECODE_DIMENSION: u32 = 32_768;
 const PREVIEW_MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 
-const WINDOW_W: i32 = 480;
-const WINDOW_H: i32 = 464;
+const WINDOW_W: i32 = 540;
+const WINDOW_H: i32 = 514;
 const PREVIEW_X: i32 = 24;
-const PREVIEW_Y: i32 = 18;
-const PREVIEW_VIEW_W: i32 = 432;
-const PREVIEW_VIEW_H: i32 = 282;
-const ROW_IMAGE_Y: i32 = 316;
-const ROW_STYLE_Y: i32 = 354;
+const PREVIEW_Y: i32 = 22;
+const PREVIEW_VIEW_W: i32 = 492;
+const PREVIEW_VIEW_H: i32 = 318;
+const ROW_IMAGE_Y: i32 = 360;
+const ROW_STYLE_Y: i32 = 402;
 const LABEL_X: i32 = 24;
-const LABEL_W: i32 = 58;
-const FIELD_X: i32 = 90;
-const FIELD_H: i32 = 24;
-const PATH_W: i32 = 244;
-const BROWSE_X: i32 = 350;
+const LABEL_W: i32 = 72;
+const FIELD_X: i32 = 110;
+const FIELD_H: i32 = 26;
+const PATH_W: i32 = 292;
+const BROWSE_X: i32 = 410;
 const BUTTON_W: i32 = 106;
-const BUTTON_H: i32 = 28;
-const STYLE_W: i32 = 160;
+const BUTTON_H: i32 = 30;
+const STYLE_W: i32 = 180;
 const STATUS_X: i32 = 24;
-const STATUS_Y: i32 = 386;
+const STATUS_Y: i32 = 434;
 const STATUS_H: i32 = 18;
 const CONTENT_RIGHT_MARGIN: i32 = 24;
 const CONTROL_GAP: i32 = 8;
 const ACTION_Y: i32 = STATUS_Y + STATUS_H + CONTROL_GAP;
+const WINDOW_BG: u32 = rgb(246, 248, 251);
+const PREVIEW_BEZEL: u32 = rgb(28, 31, 36);
+const PREVIEW_SCREEN: u32 = rgb(9, 11, 15);
+const PREVIEW_EMPTY_BG: u32 = rgb(232, 236, 243);
+const PREVIEW_EMPTY_TEXT: u32 = rgb(77, 85, 99);
+const LABEL_TEXT: u32 = rgb(31, 41, 55);
+const STATUS_TEXT: u32 = rgb(75, 85, 99);
+const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+const DWMWCP_ROUND: u32 = 2;
 
 const SS_NOPREFIX: u32 = 0x0000_0080;
 const SS_ENDELLIPSIS: u32 = 0x0000_4000;
@@ -147,6 +160,7 @@ struct NativeApp {
     apply_in_progress: bool,
     apply_tx: Sender<ApplyResult>,
     apply_rx: Receiver<ApplyResult>,
+    window_bg_brush: OwnedBrush,
 }
 
 pub fn run(lang: Language) -> anyhow::Result<()> {
@@ -159,7 +173,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         &class_name,
         hinstance,
         Some(window_proc),
-        (COLOR_BTNFACE + 1) as HBRUSH,
+        (COLOR_WINDOW + 1) as HBRUSH,
     )?;
     register_class(
         &preview_class_name,
@@ -179,6 +193,8 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 
     let initial_dpi = unsafe { GetDpiForSystem().max(96) };
     let (apply_tx, apply_rx) = mpsc::channel();
+    let window_bg_brush =
+        OwnedBrush::solid(WINDOW_BG).ok_or_else(|| anyhow::anyhow!("CreateSolidBrush failed"))?;
     let app = Box::new(NativeApp {
         lang,
         dpi: initial_dpi,
@@ -202,6 +218,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         apply_in_progress: false,
         apply_tx,
         apply_rx,
+        window_bg_brush,
     });
 
     let style_flags = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
@@ -249,6 +266,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     unsafe {
         let app = &mut *app_ptr;
         app.dpi = GetDpiForWindow(hwnd).max(96);
+        enable_modern_window_chrome(hwnd);
         resize_window_for_dpi(hwnd, app.dpi);
         layout_controls(app);
         InvalidateRect(app.preview_hwnd, null(), 1);
@@ -446,10 +464,18 @@ unsafe extern "system" fn window_proc(
         match msg {
             WM_CREATE => {
                 app.dpi = GetDpiForWindow(hwnd).max(96);
+                enable_modern_window_chrome(hwnd);
                 match create_controls(app) {
                     Ok(()) => 0,
                     Err(_) => -1,
                 }
+            }
+            WM_ERASEBKGND => {
+                paint_window_background(hwnd, wparam as HDC, app);
+                1
+            }
+            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+                style_text_control(wparam as HDC, lparam as HWND, app)
             }
             WM_COMMAND => {
                 let id = loword(wparam) as isize;
@@ -772,6 +798,49 @@ fn layout_controls(app: &NativeApp) {
     );
 }
 
+fn paint_window_background(hwnd: HWND, hdc: HDC, app: &NativeApp) {
+    let mut rect: RECT = unsafe { zeroed() };
+    unsafe {
+        GetClientRect(hwnd, &mut rect);
+        FillRect(hdc, &rect, app.window_bg_brush.get());
+    }
+}
+
+fn style_text_control(hdc: HDC, control: HWND, app: &NativeApp) -> LRESULT {
+    unsafe {
+        SetBkMode(hdc, TRANSPARENT as i32);
+        SetBkColor(hdc, WINDOW_BG);
+        let text_color = if control == app.status_hwnd {
+            STATUS_TEXT
+        } else {
+            LABEL_TEXT
+        };
+        SetTextColor(hdc, text_color);
+    }
+
+    app.window_bg_brush.get() as LRESULT
+}
+
+fn enable_modern_window_chrome(hwnd: HWND) {
+    let dark_mode: i32 = 1;
+    let corner_preference: i32 = DWMWCP_ROUND as i32;
+
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            (&dark_mode as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            (&corner_preference as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ActionRowLayout {
     status_x: i32,
@@ -848,9 +917,9 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
     let (Some(bezel), Some(black), Some(face)) = (
-        OwnedBrush::solid(rgb(48, 48, 48)),
-        OwnedBrush::solid(rgb(16, 16, 16)),
-        OwnedBrush::solid(rgb(240, 240, 240)),
+        OwnedBrush::solid(PREVIEW_BEZEL),
+        OwnedBrush::solid(PREVIEW_SCREEN),
+        OwnedBrush::solid(PREVIEW_EMPTY_BG),
     ) else {
         return;
     };
@@ -911,10 +980,11 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         unsafe {
             FillRect(hdc, &screen, face.get());
             SetBkMode(hdc, TRANSPARENT as i32);
-            SetTextColor(hdc, rgb(80, 80, 80));
+            SetTextColor(hdc, PREVIEW_EMPTY_TEXT);
         }
         let mut text_rect = screen;
         let text = wide(app.lang.empty_preview_title());
+        let previous_font = unsafe { SelectObject(hdc, app.ui_font) };
         unsafe {
             DrawTextW(
                 hdc,
@@ -925,6 +995,9 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
                     | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
                     | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
             );
+            if !previous_font.is_null() {
+                SelectObject(hdc, previous_font);
+            }
         }
     }
 }
@@ -1208,7 +1281,7 @@ fn layout_dpi_for_client(client_w: i32, client_h: i32, window_dpi: u32) -> u32 {
     client_dpi.min(window_dpi.max(96)).max(72)
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> u32 {
+const fn rgb(r: u8, g: u8, b: u8) -> u32 {
     r as u32 | ((g as u32) << 8) | ((b as u32) << 16)
 }
 
@@ -1316,8 +1389,8 @@ mod tests {
 
         assert_eq!(layout.status_x, STATUS_X);
         assert_eq!(layout.status_w, WINDOW_W - CONTENT_RIGHT_MARGIN - STATUS_X);
-        assert_eq!(layout.apply_x, 236);
-        assert_eq!(layout.close_x, 350);
+        assert_eq!(layout.apply_x, 296);
+        assert_eq!(layout.close_x, 410);
     }
 
     #[test]
