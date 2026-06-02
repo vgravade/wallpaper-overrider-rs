@@ -79,13 +79,13 @@ const PREVIEW_MAX_DECODE_DIMENSION: u32 = 32_768;
 const PREVIEW_MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 
 const WINDOW_W: i32 = 560;
-const WINDOW_H: i32 = 590;
+const WINDOW_H: i32 = 562;
 const PREVIEW_X: i32 = 24;
 const PREVIEW_Y: i32 = 24;
 const PREVIEW_VIEW_W: i32 = 512;
 const PREVIEW_VIEW_H: i32 = 320;
 const ROW_IMAGE_Y: i32 = 368;
-const ROW_STYLE_Y: i32 = 438;
+const ROW_STYLE_Y: i32 = 432;
 const LABEL_X: i32 = 24;
 const LABEL_W: i32 = 220;
 const FIELD_X: i32 = 24;
@@ -96,7 +96,7 @@ const BUTTON_W: i32 = 106;
 const BUTTON_H: i32 = 30;
 const STYLE_W: i32 = 220;
 const STATUS_X: i32 = 24;
-const STATUS_Y: i32 = 510;
+const STATUS_Y: i32 = 482;
 const STATUS_H: i32 = 18;
 const CONTENT_RIGHT_MARGIN: i32 = 24;
 const CONTROL_GAP: i32 = 8;
@@ -1165,21 +1165,10 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     };
     unsafe {
         FillRect(hdc, &icon, icon_bg.get());
-        SetTextColor(hdc, palette.path_icon_text);
     }
-    let mut icon_text_rect = icon;
-    let icon_text = wide("IMG");
+    paint_image_glyph(hdc, icon, palette.path_icon_text);
     let previous_font = unsafe { SelectObject(hdc, app.ui_font) };
     unsafe {
-        DrawTextW(
-            hdc,
-            icon_text.as_ptr(),
-            -1,
-            &mut icon_text_rect,
-            windows_sys::Win32::Graphics::Gdi::DT_CENTER
-                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
-                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
-        );
         SetTextColor(hdc, palette.path_text);
     }
 
@@ -1205,6 +1194,38 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         if !previous_font.is_null() {
             SelectObject(hdc, previous_font);
         }
+    }
+}
+
+fn paint_image_glyph(hdc: HDC, rect: RECT, color: u32) {
+    let Some(brush) = OwnedBrush::solid(color) else {
+        return;
+    };
+    let frame = RECT {
+        left: rect.left + 4,
+        top: rect.top + 4,
+        right: rect.right - 4,
+        bottom: rect.bottom - 4,
+    };
+    unsafe {
+        FrameRect(hdc, &frame, brush.get());
+    }
+
+    let sun = RECT {
+        left: frame.right - 4,
+        top: frame.top + 2,
+        right: frame.right - 2,
+        bottom: frame.top + 4,
+    };
+    let mountain = RECT {
+        left: frame.left + 2,
+        top: frame.bottom - 5,
+        right: frame.right - 2,
+        bottom: frame.bottom - 2,
+    };
+    unsafe {
+        FillRect(hdc, &sun, brush.get());
+        FillRect(hdc, &mountain, brush.get());
     }
 }
 
