@@ -155,6 +155,9 @@ struct Palette {
     preview_screen: u32,
     preview_empty_bg: u32,
     preview_empty_text: u32,
+    preview_edge: u32,
+    preview_highlight: u32,
+    preview_empty_grid: u32,
     label_text: u32,
     status_text: u32,
     button_bg: u32,
@@ -197,6 +200,9 @@ impl UiTheme {
                 preview_screen: rgb(9, 11, 15),
                 preview_empty_bg: rgb(232, 236, 243),
                 preview_empty_text: rgb(77, 85, 99),
+                preview_edge: rgb(148, 163, 184),
+                preview_highlight: rgb(255, 255, 255),
+                preview_empty_grid: rgb(219, 225, 235),
                 label_text: rgb(31, 41, 55),
                 status_text: rgb(75, 85, 99),
                 button_bg: rgb(255, 255, 255),
@@ -222,6 +228,9 @@ impl UiTheme {
                 preview_screen: rgb(4, 6, 10),
                 preview_empty_bg: rgb(42, 45, 52),
                 preview_empty_text: rgb(190, 198, 211),
+                preview_edge: rgb(78, 86, 100),
+                preview_highlight: rgb(64, 70, 82),
+                preview_empty_grid: rgb(50, 55, 64),
                 label_text: rgb(238, 242, 247),
                 status_text: rgb(198, 205, 217),
                 button_bg: rgb(45, 49, 56),
@@ -1363,25 +1372,29 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
     let palette = app.palette();
-    let (Some(bezel), Some(black), Some(face)) = (
+    let (Some(bezel), Some(black), Some(face), Some(edge), Some(highlight)) = (
         OwnedBrush::solid(palette.preview_bezel),
         OwnedBrush::solid(palette.preview_screen),
         OwnedBrush::solid(palette.preview_empty_bg),
+        OwnedBrush::solid(palette.preview_edge),
+        OwnedBrush::solid(palette.preview_highlight),
     ) else {
         return;
     };
 
     unsafe {
         FillRect(hdc, &rect, bezel.get());
+        FrameRect(hdc, &rect, edge.get());
     }
     let screen = RECT {
-        left: app.scale(10),
-        top: app.scale(12),
-        right: width - app.scale(10),
-        bottom: height - app.scale(12),
+        left: app.scale(8),
+        top: app.scale(10),
+        right: width - app.scale(8),
+        bottom: height - app.scale(10),
     };
     unsafe {
         FillRect(hdc, &screen, black.get());
+        FrameRect(hdc, &screen, highlight.get());
     }
 
     if let Some(preview) = &app.preview {
@@ -1426,6 +1439,13 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     } else {
         unsafe {
             FillRect(hdc, &screen, face.get());
+            fill_checkerboard(
+                hdc,
+                screen,
+                palette.preview_empty_bg,
+                palette.preview_empty_grid,
+                app.scale(16).max(4),
+            );
             SetBkMode(hdc, TRANSPARENT as i32);
             SetTextColor(hdc, palette.preview_empty_text);
         }
@@ -1483,6 +1503,43 @@ fn apply_wallpaper(path: &Path, style: WallpaperStyle, lang: Language) -> Result
             Ok(code) => Err(lang.elevated_broker_failed(code)),
             Err(e) => Err(lang.elevation_failed(e)),
         }
+    }
+}
+
+fn fill_checkerboard(hdc: HDC, rect: RECT, base: u32, alternate: u32, size: i32) {
+    let (Some(base_brush), Some(alternate_brush)) =
+        (OwnedBrush::solid(base), OwnedBrush::solid(alternate))
+    else {
+        return;
+    };
+
+    unsafe {
+        FillRect(hdc, &rect, base_brush.get());
+    }
+
+    let size = size.max(1);
+    let mut y = rect.top;
+    let mut row = 0;
+    while y < rect.bottom {
+        let mut x = rect.left;
+        let mut col = 0;
+        while x < rect.right {
+            if (row + col) % 2 == 0 {
+                let tile = RECT {
+                    left: x,
+                    top: y,
+                    right: (x + size).min(rect.right),
+                    bottom: (y + size).min(rect.bottom),
+                };
+                unsafe {
+                    FillRect(hdc, &tile, alternate_brush.get());
+                }
+            }
+            x += size;
+            col += 1;
+        }
+        y += size;
+        row += 1;
     }
 }
 
