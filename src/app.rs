@@ -584,7 +584,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         null_mut(),
     )?;
     for &style in WallpaperStyle::all() {
-        let label = wide(style.label(app.lang));
+        let label = wide(app.lang.wallpaper_style(style));
         unsafe {
             SendMessageW(app.style_hwnd, CB_ADDSTRING, 0, label.as_ptr() as LPARAM);
         }
