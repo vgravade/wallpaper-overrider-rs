@@ -26,24 +26,24 @@ impl Language {
         }
     }
 
-    pub fn heading(self) -> &'static str {
-        match self {
-            Self::English => "Override Wallpaper",
-            Self::French => "Forcer le fond d'écran",
-        }
-    }
-
     pub fn choose_picture(self) -> &'static str {
         match self {
-            Self::English => "Choose your picture",
-            Self::French => "Choisissez votre image",
+            Self::English => "Image:",
+            Self::French => "Image :",
         }
     }
 
     pub fn empty_path(self) -> &'static str {
         match self {
-            Self::English => "(none)",
-            Self::French => "(aucun)",
+            Self::English => "No file selected",
+            Self::French => "Aucun fichier sélectionné",
+        }
+    }
+
+    pub fn empty_preview_title(self) -> &'static str {
+        match self {
+            Self::English => "No preview yet",
+            Self::French => "Aucun aperçu",
         }
     }
 
@@ -63,29 +63,36 @@ impl Language {
 
     pub fn choose_fit(self) -> &'static str {
         match self {
-            Self::English => "Choose a fit",
-            Self::French => "Choisissez un ajustement",
-        }
-    }
-
-    pub fn preview_loading(self) -> &'static str {
-        match self {
-            Self::English => "Loading preview...",
-            Self::French => "Chargement de l'aperçu...",
+            Self::English => "Style:",
+            Self::French => "Style :",
         }
     }
 
     pub fn apply_button(self) -> &'static str {
         match self {
-            Self::English => "  Apply  ",
-            Self::French => "  Appliquer  ",
+            Self::English => "Apply",
+            Self::French => "Appliquer",
         }
     }
 
     pub fn close_button(self) -> &'static str {
         match self {
-            Self::English => "  Close  ",
-            Self::French => "  Fermer  ",
+            Self::English => "Close",
+            Self::French => "Fermer",
+        }
+    }
+
+    pub fn applying_wallpaper(self) -> &'static str {
+        match self {
+            Self::English => "Applying wallpaper...",
+            Self::French => "Application du fond d'écran...",
+        }
+    }
+
+    pub fn no_changes_to_apply(self) -> &'static str {
+        match self {
+            Self::English => "No changes to apply.",
+            Self::French => "Aucun changement à appliquer.",
         }
     }
 
@@ -100,13 +107,6 @@ impl Language {
         match self {
             Self::English => "File no longer exists.",
             Self::French => "Le fichier n'existe plus.",
-        }
-    }
-
-    pub fn failed_load_image(self, err: impl Display) -> String {
-        match self {
-            Self::English => format!("Failed to load image: {err}"),
-            Self::French => format!("Impossible de charger l'image : {err}"),
         }
     }
 

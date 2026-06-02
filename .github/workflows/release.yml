@@ -19,6 +19,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check Windows target
+        run: cargo check --locked --target x86_64-pc-windows-msvc
+
+      - name: Run tests
+        run: cargo test --locked --verbose
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit dependencies
+        run: cargo audit
+
       - name: Build release binary
         run: cargo build --release --locked
 

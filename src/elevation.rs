@@ -1,4 +1,6 @@
 use anyhow::Result;
+#[cfg(windows)]
+use std::ffi::{OsStr, OsString};
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -58,40 +60,44 @@ impl Drop for LocalWideString {
 }
 
 #[cfg(windows)]
-fn to_wide_null(s: &str) -> Vec<u16> {
-    use std::ffi::OsStr;
+fn to_wide_null(s: &OsStr) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
 
-    OsStr::new(s)
-        .encode_wide()
-        .chain(std::iter::once(0u16))
-        .collect()
+    s.encode_wide().chain(std::iter::once(0u16)).collect()
 }
 
 #[cfg(windows)]
-fn quote_cmd_arg(arg: &str) -> String {
-    if arg.is_empty() {
-        return "\"\"".to_owned();
+fn quote_cmd_arg(arg: &OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const TAB: u16 = b'\t' as u16;
+    const SPACE: u16 = b' ' as u16;
+    const QUOTE: u16 = b'"' as u16;
+    const BACKSLASH: u16 = b'\\' as u16;
+
+    let input: Vec<u16> = arg.encode_wide().collect();
+    if input.is_empty() {
+        return vec![QUOTE, QUOTE];
     }
-    if !arg.contains([' ', '\t', '"']) {
-        return arg.to_owned();
+    if !input.iter().any(|ch| matches!(*ch, SPACE | TAB | QUOTE)) {
+        return input;
     }
 
-    let mut out = String::with_capacity(arg.len() + 2);
-    out.push('"');
+    let mut out = Vec::with_capacity(input.len() + 2);
+    out.push(QUOTE);
     let mut backslashes = 0usize;
 
-    for ch in arg.chars() {
+    for ch in input {
         match ch {
-            '\\' => backslashes += 1,
-            '"' => {
-                out.push_str(&"\\".repeat(backslashes * 2 + 1));
-                out.push('"');
+            BACKSLASH => backslashes += 1,
+            QUOTE => {
+                out.extend(std::iter::repeat_n(BACKSLASH, backslashes * 2 + 1));
+                out.push(QUOTE);
                 backslashes = 0;
             }
             _ => {
                 if backslashes > 0 {
-                    out.push_str(&"\\".repeat(backslashes));
+                    out.extend(std::iter::repeat_n(BACKSLASH, backslashes));
                     backslashes = 0;
                 }
                 out.push(ch);
@@ -100,9 +106,24 @@ fn quote_cmd_arg(arg: &str) -> String {
     }
 
     if backslashes > 0 {
-        out.push_str(&"\\".repeat(backslashes * 2));
+        out.extend(std::iter::repeat_n(BACKSLASH, backslashes * 2));
     }
-    out.push('"');
+    out.push(QUOTE);
+    out
+}
+
+#[cfg(windows)]
+fn quote_cmd_args(args: &[OsString]) -> Vec<u16> {
+    const SPACE: u16 = b' ' as u16;
+
+    let mut out = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if index > 0 {
+            out.push(SPACE);
+        }
+        out.extend(quote_cmd_arg(arg));
+    }
+    out.push(0);
     out
 }
 
@@ -209,7 +230,7 @@ pub fn current_user_sid() -> Result<String> {
 /// Launch the current executable elevated with custom arguments and wait until completion.
 /// Returns the elevated process exit code.
 #[cfg(windows)]
-pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
+pub fn run_elevated_with_args(args: &[OsString]) -> Result<u32> {
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, WaitForSingleObject, INFINITE,
     };
@@ -219,15 +240,9 @@ pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW;
 
     let exe = std::env::current_exe()?;
-    let exe_str = exe.to_string_lossy();
-    let exe_w = to_wide_null(&exe_str);
-    let args_str = args
-        .iter()
-        .map(|arg| quote_cmd_arg(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let args_w = to_wide_null(&args_str);
-    let verb_w = to_wide_null("runas");
+    let exe_w = to_wide_null(exe.as_os_str());
+    let args_w = quote_cmd_args(args);
+    let verb_w = to_wide_null(OsStr::new("runas"));
 
     let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
     exec_info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
@@ -257,7 +272,7 @@ pub fn run_elevated_with_args(args: &[String]) -> Result<u32> {
 }
 
 #[cfg(not(windows))]
-pub fn run_elevated_with_args(_args: &[String]) -> Result<u32> {
+pub fn run_elevated_with_args(_args: &[std::ffi::OsString]) -> Result<u32> {
     anyhow::bail!("Elevation is only supported on Windows")
 }
 
@@ -267,7 +282,7 @@ pub fn run_elevated_with_args(_args: &[String]) -> Result<u32> {
 /// The caller should exit immediately after this returns `Ok(())`.
 #[cfg(windows)]
 pub fn relaunch_elevated() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let exit_code = run_elevated_with_args(&args)?;
     anyhow::ensure!(
         exit_code == 0,
@@ -279,4 +294,33 @@ pub fn relaunch_elevated() -> Result<()> {
 #[cfg(not(windows))]
 pub fn relaunch_elevated() -> Result<()> {
     anyhow::bail!("Elevation is only supported on Windows")
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    fn quoted(arg: &str) -> String {
+        String::from_utf16(&quote_cmd_arg(OsStr::new(arg))).unwrap()
+    }
+
+    #[test]
+    fn command_line_argument_without_special_chars_is_unchanged() {
+        assert_eq!(quoted("--style"), "--style");
+        assert_eq!(quoted("FILL"), "FILL");
+    }
+
+    #[test]
+    fn command_line_argument_with_spaces_is_quoted() {
+        assert_eq!(
+            quoted(r"C:\My Pictures\wall.jpg"),
+            r#""C:\My Pictures\wall.jpg""#
+        );
+    }
+
+    #[test]
+    fn command_line_argument_escapes_quotes_and_trailing_backslashes() {
+        assert_eq!(quoted(r#"C:\Dir \"#), r#""C:\Dir \\""#);
+        assert_eq!(quoted(r#"say "hello""#), r#""say \"hello\"""#);
+    }
 }

@@ -1,6 +1,7 @@
 // In release builds, suppress the console window for the GUI mode.
 // Broker-mode callers should use the process exit code to detect failure.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -43,6 +44,7 @@ fn main() -> anyhow::Result<()> {
 
     // ── Broker / headless mode ────────────────────────────────────────────
     if let Some(sid) = cli.target_sid {
+        registry::validate_target_sid(&sid)?;
         let wallpaper_path = cli
             .wallpaper
             .ok_or_else(|| anyhow::anyhow!("--wallpaper is required in broker mode"))?;
@@ -72,20 +74,7 @@ fn main() -> anyhow::Result<()> {
 
     // ── GUI mode ──────────────────────────────────────────────────────────
     let lang = Language::detect();
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(lang.app_title())
-            .with_inner_size([460.0, 530.0])
-            .with_resizable(false),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        lang.app_title(),
-        options,
-        Box::new(move |_cc| Ok(Box::new(app::WallpaperApp::new(lang)))),
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    app::run(lang)?;
 
     Ok(())
 }

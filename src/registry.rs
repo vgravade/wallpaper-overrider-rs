@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::{
+    ffi::{OsStr, OsString},
+    path::Path,
+};
 use winreg::{enums::*, RegKey};
 
 use crate::wallpaper_style::WallpaperStyle;
@@ -7,14 +10,14 @@ use crate::wallpaper_style::WallpaperStyle;
 const POLICIES_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Policies\System";
 
 /// Read the currently forced wallpaper path and style from HKCU.
-pub fn get_current_wallpaper() -> Result<(Option<String>, Option<WallpaperStyle>)> {
+pub fn get_current_wallpaper() -> Result<(Option<OsString>, Option<WallpaperStyle>)> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = match hkcu.open_subkey(POLICIES_PATH) {
         Ok(k) => k,
         Err(_) => return Ok((None, None)),
     };
 
-    let wallpaper: Option<String> = key.get_value("Wallpaper").ok();
+    let wallpaper: Option<OsString> = key.get_value("Wallpaper").ok();
     let style: Option<WallpaperStyle> = key
         .get_value::<String, _>("WallpaperStyle")
         .ok()
@@ -30,14 +33,9 @@ pub fn set_wallpaper_for_current_user(wallpaper: &Path, style: WallpaperStyle) -
         .create_subkey(POLICIES_PATH)
         .context("Failed to create registry key under HKCU")?;
 
-    let path_str = wallpaper
-        .to_str()
-        .context("Wallpaper path contains non-UTF-8 characters")?
-        .to_owned();
-
-    key.set_value("Wallpaper", &path_str)
+    key.set_value("Wallpaper", &wallpaper.as_os_str())
         .context("Failed to set Wallpaper registry value")?;
-    key.set_value("WallpaperStyle", &style.code().to_owned())
+    key.set_value("WallpaperStyle", &style.code())
         .context("Failed to set WallpaperStyle registry value")?;
 
     Ok(())
@@ -46,7 +44,7 @@ pub fn set_wallpaper_for_current_user(wallpaper: &Path, style: WallpaperStyle) -
 /// Write wallpaper and style to `HKEY_USERS\<sid>` — requires admin privileges.
 pub fn set_wallpaper_for_sid(sid: &str, wallpaper: &Path, style: WallpaperStyle) -> Result<()> {
     let sid = sid.trim();
-    anyhow::ensure!(!sid.is_empty(), "SID must not be empty");
+    validate_target_sid(sid)?;
 
     let subkey_path = format!(r"{sid}\{POLICIES_PATH}");
     let hku = RegKey::predef(HKEY_USERS);
@@ -54,16 +52,57 @@ pub fn set_wallpaper_for_sid(sid: &str, wallpaper: &Path, style: WallpaperStyle)
         .create_subkey(&subkey_path)
         .with_context(|| format!("Failed to create key HKU\\{subkey_path} (admin required)"))?;
 
-    let path_str = wallpaper
-        .to_str()
-        .context("Wallpaper path contains non-UTF-8 characters")?
-        .to_owned();
-
-    key.set_value("Wallpaper", &path_str)
+    key.set_value("Wallpaper", &wallpaper.as_os_str())
         .context("Failed to set Wallpaper registry value")?;
-    key.set_value("WallpaperStyle", &style.code().to_owned())
+    key.set_value("WallpaperStyle", &style.code())
         .context("Failed to set WallpaperStyle registry value")?;
 
+    Ok(())
+}
+
+pub fn validate_target_sid(sid: &str) -> Result<()> {
+    anyhow::ensure!(!sid.is_empty(), "SID must not be empty");
+    anyhow::ensure!(
+        is_sid_path_component(sid),
+        "SID contains invalid characters: {sid}"
+    );
+    validate_windows_sid(sid)
+}
+
+fn is_sid_path_component(sid: &str) -> bool {
+    sid.strip_prefix("S-").is_some_and(|rest| {
+        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+    })
+}
+
+#[cfg(windows)]
+fn validate_windows_sid(sid: &str) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::{Authorization::ConvertStringSidToSidW, IsValidSid, PSID},
+    };
+
+    let wide: Vec<u16> = OsStr::new(sid)
+        .encode_wide()
+        .chain(std::iter::once(0u16))
+        .collect();
+    let mut sid_ptr: PSID = std::ptr::null_mut();
+
+    let converted = unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut sid_ptr) != 0 };
+    let valid = converted && !sid_ptr.is_null() && unsafe { IsValidSid(sid_ptr) != 0 };
+    if !sid_ptr.is_null() {
+        unsafe {
+            let _ = LocalFree(sid_ptr.cast());
+        }
+    }
+
+    anyhow::ensure!(valid, "Invalid Windows SID: {sid}");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn validate_windows_sid(_sid: &str) -> Result<()> {
     Ok(())
 }
 
@@ -98,4 +137,24 @@ pub fn refresh_wallpaper_session(path: &Path) -> Result<()> {
 #[cfg(not(windows))]
 pub fn refresh_wallpaper_session(_path: &Path) -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sid_component_rejects_registry_path_injection() {
+        assert!(!is_sid_path_component(""));
+        assert!(!is_sid_path_component(r"S-1-5-21\Software"));
+        assert!(!is_sid_path_component("S-1-5-21/Software"));
+        assert!(!is_sid_path_component("S-1-5-21 "));
+        assert!(!is_sid_path_component("HKEY_CURRENT_USER"));
+    }
+
+    #[test]
+    fn sid_component_accepts_numeric_sid_shape() {
+        assert!(is_sid_path_component("S-1-5-18"));
+        assert!(is_sid_path_component("S-1-5-21-123-456-789-1001"));
+    }
 }
