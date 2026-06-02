@@ -78,25 +78,25 @@ const PREVIEW_WORK_SCALE: u32 = 2;
 const PREVIEW_MAX_DECODE_DIMENSION: u32 = 32_768;
 const PREVIEW_MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 
-const WINDOW_W: i32 = 540;
-const WINDOW_H: i32 = 514;
+const WINDOW_W: i32 = 560;
+const WINDOW_H: i32 = 590;
 const PREVIEW_X: i32 = 24;
-const PREVIEW_Y: i32 = 22;
-const PREVIEW_VIEW_W: i32 = 492;
-const PREVIEW_VIEW_H: i32 = 318;
-const ROW_IMAGE_Y: i32 = 360;
-const ROW_STYLE_Y: i32 = 402;
+const PREVIEW_Y: i32 = 24;
+const PREVIEW_VIEW_W: i32 = 512;
+const PREVIEW_VIEW_H: i32 = 320;
+const ROW_IMAGE_Y: i32 = 368;
+const ROW_STYLE_Y: i32 = 438;
 const LABEL_X: i32 = 24;
-const LABEL_W: i32 = 72;
-const FIELD_X: i32 = 110;
-const FIELD_H: i32 = 26;
-const PATH_W: i32 = 292;
-const BROWSE_X: i32 = 410;
+const LABEL_W: i32 = 220;
+const FIELD_X: i32 = 24;
+const FIELD_H: i32 = 30;
+const PATH_W: i32 = 398;
+const BROWSE_X: i32 = 430;
 const BUTTON_W: i32 = 106;
 const BUTTON_H: i32 = 30;
-const STYLE_W: i32 = 180;
+const STYLE_W: i32 = 220;
 const STATUS_X: i32 = 24;
-const STATUS_Y: i32 = 434;
+const STATUS_Y: i32 = 510;
 const STATUS_H: i32 = 18;
 const CONTENT_RIGHT_MARGIN: i32 = 24;
 const CONTROL_GAP: i32 = 8;
@@ -1073,35 +1073,35 @@ fn layout_controls(app: &NativeApp) {
     move_window(
         app.image_label_hwnd,
         scaled(LABEL_X),
-        scaled(ROW_IMAGE_Y + 4),
+        scaled(ROW_IMAGE_Y),
         scaled(LABEL_W),
-        scaled(FIELD_H),
+        scaled(20),
     );
     move_window(
         app.path_hwnd,
         scaled(FIELD_X),
-        scaled(ROW_IMAGE_Y),
+        scaled(ROW_IMAGE_Y + 24),
         scaled(PATH_W),
         scaled(FIELD_H),
     );
     move_window(
         app.browse_hwnd,
         scaled(BROWSE_X),
-        scaled(ROW_IMAGE_Y - 1),
+        scaled(ROW_IMAGE_Y + 24),
         scaled(BUTTON_W),
         scaled(BUTTON_H),
     );
     move_window(
         app.style_label_hwnd,
         scaled(LABEL_X),
-        scaled(ROW_STYLE_Y + 4),
+        scaled(ROW_STYLE_Y),
         scaled(LABEL_W),
-        scaled(FIELD_H),
+        scaled(20),
     );
     move_window(
         app.style_hwnd,
         scaled(FIELD_X),
-        scaled(ROW_STYLE_Y),
+        scaled(ROW_STYLE_Y + 24),
         scaled(STYLE_W),
         scaled(160),
     );
@@ -2004,8 +2004,8 @@ mod tests {
 
         assert_eq!(layout.status_x, STATUS_X);
         assert_eq!(layout.status_w, WINDOW_W - CONTENT_RIGHT_MARGIN - STATUS_X);
-        assert_eq!(layout.apply_x, 296);
-        assert_eq!(layout.close_x, 410);
+        assert_eq!(layout.apply_x, 316);
+        assert_eq!(layout.close_x, 430);
     }
 
     #[test]
