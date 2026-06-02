@@ -35,7 +35,8 @@ use windows_sys::Win32::{
                 GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_NOCHANGEDIR,
                 OFN_PATHMUSTEXIST, OPENFILENAMEW,
             },
-            DRAWITEMSTRUCT,
+            DRAWITEMSTRUCT, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
+            TTM_SETTOOLINFOW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
         },
         HiDpi::{GetDpiForSystem, GetDpiForWindow, SystemParametersInfoForDpi},
         Input::KeyboardAndMouse::EnableWindow,
@@ -45,13 +46,13 @@ use windows_sys::Win32::{
             GetWindowTextW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
             SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
             TranslateMessage, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-            CB_SETCURSEL, CREATESTRUCTW, ES_AUTOHSCROLL, ES_READONLY, GWLP_USERDATA, HMENU,
-            IDC_ARROW, MSG, NONCLIENTMETRICSW, SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND,
-            WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
-            WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW,
-            WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED,
-            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            CB_SETCURSEL, CREATESTRUCTW, GWLP_USERDATA, HMENU, IDC_ARROW, MSG, NONCLIENTMETRICSW,
+            SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
+            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_NCCREATE,
+            WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
+            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
+            WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -165,6 +166,11 @@ struct Palette {
     accent_hover_bg: u32,
     accent_pressed_bg: u32,
     accent_text: u32,
+    path_bg: u32,
+    path_border: u32,
+    path_icon_bg: u32,
+    path_icon_text: u32,
+    path_text: u32,
 }
 
 impl UiTheme {
@@ -202,6 +208,11 @@ impl UiTheme {
                 accent_hover_bg: rgb(0, 103, 192),
                 accent_pressed_bg: rgb(0, 80, 158),
                 accent_text: rgb(255, 255, 255),
+                path_bg: rgb(255, 255, 255),
+                path_border: rgb(203, 213, 225),
+                path_icon_bg: rgb(219, 234, 254),
+                path_icon_text: rgb(0, 95, 184),
+                path_text: rgb(31, 41, 55),
             },
             Self::Dark => Palette {
                 window_bg: rgb(30, 32, 36),
@@ -222,6 +233,11 @@ impl UiTheme {
                 accent_hover_bg: rgb(125, 181, 252),
                 accent_pressed_bg: rgb(69, 142, 230),
                 accent_text: rgb(5, 10, 20),
+                path_bg: rgb(45, 49, 56),
+                path_border: rgb(76, 84, 97),
+                path_icon_bg: rgb(30, 64, 111),
+                path_icon_text: rgb(191, 219, 254),
+                path_text: rgb(241, 245, 249),
             },
         }
     }
@@ -241,6 +257,8 @@ struct NativeApp {
     status_hwnd: HWND,
     apply_hwnd: HWND,
     close_hwnd: HWND,
+    path_tooltip_hwnd: HWND,
+    path_tooltip_text: Vec<u16>,
     ui_font: HFONT,
     ui_font_owned: bool,
     wallpaper_path: Option<PathBuf>,
@@ -260,6 +278,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 
     let class_name = wide("WallpaperOverriderWindow");
     let preview_class_name = wide("WallpaperOverriderPreview");
+    let path_class_name = wide("WallpaperOverriderPath");
     register_class(
         &class_name,
         hinstance,
@@ -270,6 +289,12 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         &preview_class_name,
         hinstance,
         Some(preview_proc),
+        (COLOR_WINDOW + 1) as HBRUSH,
+    )?;
+    register_class(
+        &path_class_name,
+        hinstance,
+        Some(path_proc),
         (COLOR_WINDOW + 1) as HBRUSH,
     )?;
 
@@ -301,6 +326,8 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         status_hwnd: null_mut(),
         apply_hwnd: null_mut(),
         close_hwnd: null_mut(),
+        path_tooltip_hwnd: null_mut(),
+        path_tooltip_text: Vec::new(),
         ui_font: null_mut(),
         ui_font_owned: false,
         wallpaper_path: wallpaper_path.clone(),
@@ -444,14 +471,46 @@ impl NativeApp {
         }
     }
 
-    fn refresh_path_text(&self) {
+    fn refresh_path_text(&mut self) {
         let display = self
             .wallpaper_path
             .as_deref()
-            .and_then(Path::file_name)
-            .map(|name| name.to_string_lossy().into_owned())
+            .map(|path| path.display().to_string())
             .unwrap_or_else(|| self.lang.empty_path().to_owned());
         set_window_text(self.path_hwnd, &display);
+        self.update_path_tooltip(&display);
+        unsafe {
+            InvalidateRect(self.path_hwnd, null(), 1);
+        }
+    }
+
+    fn path_display_name(&self) -> String {
+        self.wallpaper_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.lang.empty_path().to_owned())
+    }
+
+    fn update_path_tooltip(&mut self, text: &str) {
+        self.path_tooltip_text = wide(text);
+        if self.path_tooltip_hwnd.is_null() {
+            return;
+        }
+
+        let mut tool = tooltip_info(
+            self.hwnd,
+            self.path_hwnd,
+            self.path_tooltip_text.as_mut_ptr(),
+        );
+        unsafe {
+            SendMessageW(
+                self.path_tooltip_hwnd,
+                TTM_SETTOOLINFOW,
+                0,
+                (&mut tool as *mut TTTOOLINFOW) as LPARAM,
+            );
+        }
     }
 
     fn set_status(&self, text: &str) {
@@ -690,6 +749,37 @@ unsafe extern "system" fn preview_proc(
     }
 }
 
+unsafe extern "system" fn path_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    // SAFETY: Windows calls this procedure with message-specific pointer payloads.
+    unsafe {
+        if msg == WM_NCCREATE {
+            let createstruct = lparam as *const CREATESTRUCTW;
+            let app = (*createstruct).lpCreateParams as *mut NativeApp;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
+        }
+
+        match msg {
+            WM_ERASEBKGND => 1,
+            WM_PAINT => {
+                let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp;
+                let mut ps: PAINTSTRUCT = zeroed();
+                let hdc = BeginPaint(hwnd, &mut ps);
+                if !app.is_null() {
+                    paint_path_pill(hwnd, hdc, &*app);
+                }
+                EndPaint(hwnd, &ps);
+                0
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
+
 fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
     app.preview_hwnd = create_child(
         app.hwnd,
@@ -709,15 +799,15 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         null_mut(),
     )?;
 
-    app.path_hwnd = create_child_ex(
-        windows_sys::Win32::UI::WindowsAndMessaging::WS_EX_CLIENTEDGE,
+    app.path_hwnd = create_child(
         app.hwnd,
-        "EDIT",
+        "WallpaperOverriderPath",
         "",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         0,
-        null_mut(),
+        (app as *mut NativeApp).cast(),
     )?;
+    app.path_tooltip_hwnd = create_path_tooltip(app)?;
 
     app.browse_hwnd = create_child(
         app.hwnd,
@@ -825,6 +915,58 @@ fn apply_control_font(app: &NativeApp, font: HFONT) {
     }
 }
 
+fn create_path_tooltip(app: &mut NativeApp) -> anyhow::Result<HWND> {
+    app.path_tooltip_text = wide(app.lang.empty_path());
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            TOOLTIPS_CLASSW,
+            null(),
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            0,
+            0,
+            0,
+            0,
+            app.hwnd,
+            null_mut(),
+            GetModuleHandleW(null()),
+            null_mut(),
+        )
+    };
+    anyhow::ensure!(!hwnd.is_null(), "tooltip CreateWindowExW failed");
+
+    let mut tool = tooltip_info(app.hwnd, app.path_hwnd, app.path_tooltip_text.as_mut_ptr());
+    unsafe {
+        SendMessageW(
+            hwnd,
+            TTM_ADDTOOLW,
+            0,
+            (&mut tool as *mut TTTOOLINFOW) as LPARAM,
+        );
+    }
+
+    Ok(hwnd)
+}
+
+fn tooltip_info(owner: HWND, target: HWND, text: *mut u16) -> TTTOOLINFOW {
+    TTTOOLINFOW {
+        cbSize: size_of::<TTTOOLINFOW>() as u32,
+        uFlags: TTF_SUBCLASS | TTF_IDISHWND,
+        hwnd: owner,
+        uId: target as usize,
+        rect: RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        },
+        hinst: null_mut(),
+        lpszText: text,
+        lParam: 0,
+        lpReserved: null_mut(),
+    }
+}
+
 fn create_message_font(dpi: u32) -> (HFONT, bool) {
     let mut metrics: NONCLIENTMETRICSW = unsafe { zeroed() };
     metrics.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
@@ -925,6 +1067,78 @@ fn paint_window_background(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     unsafe {
         GetClientRect(hwnd, &mut rect);
         FillRect(hdc, &rect, app.window_bg_brush.get());
+    }
+}
+
+fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
+    let mut rect: RECT = unsafe { zeroed() };
+    unsafe {
+        GetClientRect(hwnd, &mut rect);
+    }
+    let palette = app.palette();
+    let (Some(bg), Some(border), Some(icon_bg)) = (
+        OwnedBrush::solid(palette.path_bg),
+        OwnedBrush::solid(palette.path_border),
+        OwnedBrush::solid(palette.path_icon_bg),
+    ) else {
+        return;
+    };
+
+    unsafe {
+        FillRect(hdc, &rect, bg.get());
+        FrameRect(hdc, &rect, border.get());
+        SetBkMode(hdc, TRANSPARENT as i32);
+    }
+
+    let icon_size = app.scale(18);
+    let icon = RECT {
+        left: rect.left + app.scale(8),
+        top: rect.top + ((rect.bottom - rect.top - icon_size) / 2),
+        right: rect.left + app.scale(8) + icon_size,
+        bottom: rect.top + ((rect.bottom - rect.top - icon_size) / 2) + icon_size,
+    };
+    unsafe {
+        FillRect(hdc, &icon, icon_bg.get());
+        SetTextColor(hdc, palette.path_icon_text);
+    }
+    let mut icon_text_rect = icon;
+    let icon_text = wide("IMG");
+    let previous_font = unsafe { SelectObject(hdc, app.ui_font) };
+    unsafe {
+        DrawTextW(
+            hdc,
+            icon_text.as_ptr(),
+            -1,
+            &mut icon_text_rect,
+            windows_sys::Win32::Graphics::Gdi::DT_CENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
+        );
+        SetTextColor(hdc, palette.path_text);
+    }
+
+    let mut text_rect = RECT {
+        left: icon.right + app.scale(8),
+        top: rect.top,
+        right: rect.right - app.scale(10),
+        bottom: rect.bottom,
+    };
+    let display = app.path_display_name();
+    let text = wide(&display);
+    unsafe {
+        DrawTextW(
+            hdc,
+            text.as_ptr(),
+            -1,
+            &mut text_rect,
+            windows_sys::Win32::Graphics::Gdi::DT_LEFT
+                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE
+                | windows_sys::Win32::Graphics::Gdi::DT_END_ELLIPSIS,
+        );
+        if !previous_font.is_null() {
+            SelectObject(hdc, previous_font);
+        }
     }
 }
 
