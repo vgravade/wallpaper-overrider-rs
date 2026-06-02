@@ -46,11 +46,13 @@ use windows_sys::Win32::{
             SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
             SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
             WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT,
-            WM_SETFONT, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-            WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
+            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
+            WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle};
 
@@ -83,13 +85,6 @@ const STATUS_H: i32 = 18;
 const CONTENT_RIGHT_MARGIN: i32 = 24;
 const CONTROL_GAP: i32 = 8;
 const ACTION_Y: i32 = STATUS_Y + STATUS_H + CONTROL_GAP;
-const WINDOW_BG: u32 = rgb(246, 248, 251);
-const PREVIEW_BEZEL: u32 = rgb(28, 31, 36);
-const PREVIEW_SCREEN: u32 = rgb(9, 11, 15);
-const PREVIEW_EMPTY_BG: u32 = rgb(232, 236, 243);
-const PREVIEW_EMPTY_TEXT: u32 = rgb(77, 85, 99);
-const LABEL_TEXT: u32 = rgb(31, 41, 55);
-const STATUS_TEXT: u32 = rgb(75, 85, 99);
 const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
 const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
 const DWMWCP_ROUND: u32 = 2;
@@ -137,8 +132,64 @@ struct ApplyResult {
     result: Result<(), String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiTheme {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Palette {
+    window_bg: u32,
+    preview_bezel: u32,
+    preview_screen: u32,
+    preview_empty_bg: u32,
+    preview_empty_text: u32,
+    label_text: u32,
+    status_text: u32,
+}
+
+impl UiTheme {
+    fn detect() -> Self {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let Ok(personalize) =
+            hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+        else {
+            return Self::Light;
+        };
+        match personalize.get_value::<u32, _>("AppsUseLightTheme") {
+            Ok(0) => Self::Dark,
+            _ => Self::Light,
+        }
+    }
+
+    fn palette(self) -> Palette {
+        match self {
+            Self::Light => Palette {
+                window_bg: rgb(246, 248, 251),
+                preview_bezel: rgb(28, 31, 36),
+                preview_screen: rgb(9, 11, 15),
+                preview_empty_bg: rgb(232, 236, 243),
+                preview_empty_text: rgb(77, 85, 99),
+                label_text: rgb(31, 41, 55),
+                status_text: rgb(75, 85, 99),
+            },
+            Self::Dark => Palette {
+                window_bg: rgb(30, 32, 36),
+                preview_bezel: rgb(12, 14, 18),
+                preview_screen: rgb(4, 6, 10),
+                preview_empty_bg: rgb(42, 45, 52),
+                preview_empty_text: rgb(190, 198, 211),
+                label_text: rgb(238, 242, 247),
+                status_text: rgb(198, 205, 217),
+            },
+        }
+    }
+}
+
 struct NativeApp {
     lang: Language,
+    theme: UiTheme,
     dpi: u32,
     hwnd: HWND,
     preview_hwnd: HWND,
@@ -193,10 +244,12 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 
     let initial_dpi = unsafe { GetDpiForSystem().max(96) };
     let (apply_tx, apply_rx) = mpsc::channel();
-    let window_bg_brush =
-        OwnedBrush::solid(WINDOW_BG).ok_or_else(|| anyhow::anyhow!("CreateSolidBrush failed"))?;
+    let theme = UiTheme::detect();
+    let window_bg_brush = OwnedBrush::solid(theme.palette().window_bg)
+        .ok_or_else(|| anyhow::anyhow!("CreateSolidBrush failed"))?;
     let app = Box::new(NativeApp {
         lang,
+        theme,
         dpi: initial_dpi,
         hwnd: null_mut(),
         preview_hwnd: null_mut(),
@@ -266,7 +319,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     unsafe {
         let app = &mut *app_ptr;
         app.dpi = GetDpiForWindow(hwnd).max(96);
-        enable_modern_window_chrome(hwnd);
+        enable_modern_window_chrome(hwnd, app.theme);
         resize_window_for_dpi(hwnd, app.dpi);
         layout_controls(app);
         InvalidateRect(app.preview_hwnd, null(), 1);
@@ -291,6 +344,26 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 }
 
 impl NativeApp {
+    fn palette(&self) -> Palette {
+        self.theme.palette()
+    }
+
+    fn refresh_theme(&mut self) {
+        let theme = UiTheme::detect();
+        if self.theme == theme {
+            return;
+        }
+        self.theme = theme;
+        if let Some(brush) = OwnedBrush::solid(self.palette().window_bg) {
+            self.window_bg_brush = brush;
+        }
+        enable_modern_window_chrome(self.hwnd, self.theme);
+        unsafe {
+            InvalidateRect(self.hwnd, null(), 1);
+            InvalidateRect(self.preview_hwnd, null(), 1);
+        }
+    }
+
     fn scale(&self, value: i32) -> i32 {
         scale(value, self.layout_dpi())
     }
@@ -464,7 +537,7 @@ unsafe extern "system" fn window_proc(
         match msg {
             WM_CREATE => {
                 app.dpi = GetDpiForWindow(hwnd).max(96);
-                enable_modern_window_chrome(hwnd);
+                enable_modern_window_chrome(hwnd, app.theme);
                 match create_controls(app) {
                     Ok(()) => 0,
                     Err(_) => -1,
@@ -519,6 +592,10 @@ unsafe extern "system" fn window_proc(
                 while let Ok(result) = app.apply_rx.try_recv() {
                     app.handle_apply_result(result);
                 }
+                0
+            }
+            WM_SETTINGCHANGE => {
+                app.refresh_theme();
                 0
             }
             WM_DESTROY => {
@@ -807,13 +884,14 @@ fn paint_window_background(hwnd: HWND, hdc: HDC, app: &NativeApp) {
 }
 
 fn style_text_control(hdc: HDC, control: HWND, app: &NativeApp) -> LRESULT {
+    let palette = app.palette();
     unsafe {
         SetBkMode(hdc, TRANSPARENT as i32);
-        SetBkColor(hdc, WINDOW_BG);
+        SetBkColor(hdc, palette.window_bg);
         let text_color = if control == app.status_hwnd {
-            STATUS_TEXT
+            palette.status_text
         } else {
-            LABEL_TEXT
+            palette.label_text
         };
         SetTextColor(hdc, text_color);
     }
@@ -821,8 +899,8 @@ fn style_text_control(hdc: HDC, control: HWND, app: &NativeApp) -> LRESULT {
     app.window_bg_brush.get() as LRESULT
 }
 
-fn enable_modern_window_chrome(hwnd: HWND) {
-    let dark_mode: i32 = 1;
+fn enable_modern_window_chrome(hwnd: HWND, theme: UiTheme) {
+    let dark_mode: i32 = (theme == UiTheme::Dark) as i32;
     let corner_preference: i32 = DWMWCP_ROUND as i32;
 
     unsafe {
@@ -916,10 +994,11 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     }
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
+    let palette = app.palette();
     let (Some(bezel), Some(black), Some(face)) = (
-        OwnedBrush::solid(PREVIEW_BEZEL),
-        OwnedBrush::solid(PREVIEW_SCREEN),
-        OwnedBrush::solid(PREVIEW_EMPTY_BG),
+        OwnedBrush::solid(palette.preview_bezel),
+        OwnedBrush::solid(palette.preview_screen),
+        OwnedBrush::solid(palette.preview_empty_bg),
     ) else {
         return;
     };
@@ -980,7 +1059,7 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         unsafe {
             FillRect(hdc, &screen, face.get());
             SetBkMode(hdc, TRANSPARENT as i32);
-            SetTextColor(hdc, PREVIEW_EMPTY_TEXT);
+            SetTextColor(hdc, palette.preview_empty_text);
         }
         let mut text_rect = screen;
         let text = wide(app.lang.empty_preview_title());
