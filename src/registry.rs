@@ -1,3 +1,8 @@
+//! Registry policy access for Windows desktop wallpaper enforcement.
+//!
+//! The app writes the same policy values either under HKCU for the current user
+//! or under HKU\<SID> when an elevated broker applies settings for a target user.
+
 use anyhow::{Context, Result};
 use std::{
     ffi::{OsStr, OsString},
@@ -70,6 +75,8 @@ pub fn validate_target_sid(sid: &str) -> Result<()> {
 }
 
 fn is_sid_path_component(sid: &str) -> bool {
+    // The SID is interpolated into an HKU subkey path, so reject separators,
+    // whitespace, and aliases before calling Windows' SID validator.
     sid.strip_prefix("S-").is_some_and(|rest| {
         !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit() || b == b'-')
     })
@@ -89,6 +96,8 @@ fn validate_windows_sid(sid: &str) -> Result<()> {
         .collect();
     let mut sid_ptr: PSID = std::ptr::null_mut();
 
+    // ConvertStringSidToSidW allocates with LocalAlloc; LocalFree is required
+    // even when the subsequent IsValidSid check fails.
     let converted = unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut sid_ptr) != 0 };
     let valid = converted && !sid_ptr.is_null() && unsafe { IsValidSid(sid_ptr) != 0 };
     if !sid_ptr.is_null() {

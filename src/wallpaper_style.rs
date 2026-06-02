@@ -1,3 +1,5 @@
+//! Mapping between user-facing wallpaper styles and Windows registry codes.
+
 /// Wallpaper display style — mirrors the registry codes used by Windows.
 ///
 /// Registry value `WallpaperStyle` under

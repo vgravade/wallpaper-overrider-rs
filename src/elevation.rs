@@ -1,3 +1,8 @@
+//! UAC elevation helpers and current-user SID discovery.
+//!
+//! GUI mode calls into this module only when registry policy writes need an
+//! elevated broker process. Non-Windows builds keep stubs so tests can run.
+
 use anyhow::Result;
 #[cfg(windows)]
 use std::ffi::{OsStr, OsString};
@@ -75,6 +80,8 @@ fn quote_cmd_arg(arg: &OsStr) -> Vec<u16> {
     const QUOTE: u16 = b'"' as u16;
     const BACKSLASH: u16 = b'\\' as u16;
 
+    // ShellExecuteExW receives one raw command-line string, so reproduce the
+    // Windows quoting rules used by CommandLineToArgvW for each argument.
     let input: Vec<u16> = arg.encode_wide().collect();
     if input.is_empty() {
         return vec![QUOTE, QUOTE];
@@ -182,6 +189,8 @@ pub fn current_user_sid() -> Result<String> {
             .ok_or_else(|| anyhow::anyhow!("OpenProcessToken returned null"))?;
 
         let mut needed: u32 = 0;
+        // TOKEN_USER is variable-sized. The first call asks Windows for the
+        // required buffer length; the second call fills the owned byte buffer.
         let _ = GetTokenInformation(token.get(), TokenUser, std::ptr::null_mut(), 0, &mut needed);
         anyhow::ensure!(
             needed > 0,
@@ -211,6 +220,7 @@ pub fn current_user_sid() -> Result<String> {
         let sid_wide = LocalWideString::new(sid_wide_ptr)
             .ok_or_else(|| anyhow::anyhow!("ConvertSidToStringSidW returned null"))?;
 
+        // ConvertSidToStringSidW returns a null-terminated UTF-16 string.
         let mut len = 0usize;
         while *sid_wide.as_ptr().add(len) != 0 {
             len += 1;

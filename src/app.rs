@@ -1,3 +1,8 @@
+//! Native Win32 GUI for selecting, previewing, and applying wallpaper policy values.
+//!
+//! The UI is intentionally implemented without a framework to keep the release binary small.
+//! Most helpers below exist to make the Win32 ownership and DPI rules explicit.
+
 use image::{imageops::FilterType, DynamicImage, ImageReader, Limits, RgbaImage};
 use std::{
     ffi::{OsStr, OsString},
@@ -91,6 +96,7 @@ struct PreviewBitmap {
     bgra: Vec<u8>,
 }
 
+// GDI brushes returned by CreateSolidBrush must be released with DeleteObject.
 struct OwnedBrush(HBRUSH);
 
 impl OwnedBrush {
@@ -162,6 +168,8 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         (COLOR_WINDOW + 1) as HBRUSH,
     )?;
 
+    // Registry reads are best-effort: a missing or unreadable policy should not
+    // prevent the picker from opening with an empty selection.
     let (wallpaper_str, style) = registry::get_current_wallpaper().unwrap_or((None, None));
     let wallpaper_path = wallpaper_str.map(PathBuf::from).filter(|p| p.is_file());
     let style = style.unwrap_or_default();
@@ -213,6 +221,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     let y = (unsafe { GetSystemMetrics(SM_CYSCREEN) } - window_h) / 2;
 
     let title = wide(lang.app_title());
+    // The boxed state is handed to Win32 and reclaimed on WM_DESTROY.
     let app_ptr = Box::into_raw(app);
     let hwnd = unsafe {
         CreateWindowExW(
@@ -282,6 +291,8 @@ impl NativeApp {
             return self.dpi.max(96);
         }
 
+        // When Windows sends a resized client area during DPI transitions, derive
+        // the layout DPI from the actual client size so controls stay visible.
         layout_dpi_for_client(client_w, client_h, self.dpi)
     }
 
@@ -387,6 +398,7 @@ impl NativeApp {
             };
             if tx.send(message).is_ok() {
                 unsafe {
+                    // Marshal completion back to the UI thread before touching HWND state.
                     let _ = PostMessageW(hwnd as HWND, WM_APPLY_DONE, 0, 0);
                 }
             };
@@ -416,6 +428,8 @@ unsafe extern "system" fn window_proc(
     // SAFETY: Windows calls this procedure with message-specific pointer payloads.
     unsafe {
         if msg == WM_NCCREATE {
+            // WM_NCCREATE is the first reliable point where lpCreateParams is available.
+            // Store the app pointer in GWLP_USERDATA so later messages can find it.
             let createstruct = lparam as *const CREATESTRUCTW;
             let app = (*createstruct).lpCreateParams as *mut NativeApp;
             (*app).hwnd = hwnd;
@@ -667,6 +681,8 @@ fn create_message_font(dpi: u32) -> (HFONT, bool) {
     let mut metrics: NONCLIENTMETRICSW = unsafe { zeroed() };
     metrics.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
 
+    // Match the system message font at the window DPI instead of relying on
+    // DEFAULT_GUI_FONT, which is only a fallback for older or failing systems.
     let ok = unsafe {
         SystemParametersInfoForDpi(
             SPI_GETNONCLIENTMETRICS,
@@ -768,6 +784,8 @@ struct ActionRowLayout {
 }
 
 fn action_row_layout(client_w: i32) -> ActionRowLayout {
+    // Keep the status line full-width and move actions from the right edge; this
+    // preserves margins even if Windows reports a narrower-than-designed client.
     let content_right = (client_w - CONTENT_RIGHT_MARGIN).max(STATUS_X + 1);
     let close_x = (content_right - BUTTON_W).max(STATUS_X);
     let apply_x = (close_x - CONTROL_GAP - BUTTON_W).max(STATUS_X);
@@ -912,6 +930,8 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
 }
 
 fn apply_wallpaper(path: &Path, style: WallpaperStyle, lang: Language) -> Result<(), String> {
+    // Prefer the non-elevated HKCU write. If policy permissions block it, use the
+    // elevated broker path that writes the same values under HKEY_USERS\<SID>.
     if let Ok(()) = registry::set_wallpaper_for_current_user(path, style) {
         let _ = registry::refresh_wallpaper_session(path);
         return Ok(());
@@ -951,6 +971,7 @@ fn build_preview_bitmap(path: &Path, style: WallpaperStyle) -> anyhow::Result<Pr
     let rgba = render_preview(&work, style, PREVIEW_W, PREVIEW_H);
     let mut bgra = Vec::with_capacity(rgba.len());
     for px in rgba.chunks_exact(4) {
+        // StretchDIBits with a 32-bit BI_RGB DIB expects bytes in BGRA order.
         bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
     }
 
@@ -994,6 +1015,7 @@ fn load_preview_work_image(path: &Path) -> anyhow::Result<DynamicImage> {
     let mut reader = ImageReader::open(path)?;
     reader.limits(preview_decode_limits());
     let img = reader.with_guessed_format()?.decode()?;
+    // Preview rendering never needs the original full-resolution bitmap.
     Ok(downscale_for_preview(
         img,
         PREVIEW_W * PREVIEW_WORK_SCALE,

@@ -1,3 +1,5 @@
+//! Small static localization catalog used by the native UI and error messages.
+
 use crate::wallpaper_style::WallpaperStyle;
 use std::fmt::Display;
 
