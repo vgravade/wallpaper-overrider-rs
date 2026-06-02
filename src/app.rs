@@ -44,16 +44,17 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
             GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
-            GetWindowTextW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
+            GetWindowTextW, LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW,
             SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
             TranslateMessage, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-            CB_SETCURSEL, CREATESTRUCTW, GWLP_USERDATA, HMENU, IDC_ARROW, MSG, NONCLIENTMETRICSW,
-            SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
-            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_DROPFILES, WM_ERASEBKGND,
-            WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION,
-            WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP,
-            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            CB_SETCURSEL, CREATESTRUCTW, GWLP_USERDATA, HICON, HMENU, ICON_BIG, ICON_SMALL,
+            IDC_ARROW, MSG, NONCLIENTMETRICSW, SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS,
+            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND,
+            WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
+            WM_DROPFILES, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETICON,
+            WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
+            WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP,
+            WS_VISIBLE,
         },
     },
 };
@@ -106,6 +107,7 @@ const ID_BROWSE: isize = 1001;
 const ID_STYLE: isize = 1002;
 const ID_APPLY: isize = 1003;
 const ID_CLOSE: isize = 1004;
+const IDI_APP_ICON: u16 = 1;
 const WM_APPLY_DONE: u32 = WM_APP + 1;
 
 struct PreviewBitmap {
@@ -398,6 +400,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         let app = &mut *app_ptr;
         app.dpi = GetDpiForWindow(hwnd).max(96);
         enable_modern_window_chrome(hwnd, app.theme);
+        set_window_icon(hwnd, hinstance);
         DragAcceptFiles(hwnd, 1);
         resize_window_for_dpi(hwnd, app.dpi);
         layout_controls(app);
@@ -1762,7 +1765,7 @@ fn register_class(
         cbClsExtra: 0,
         cbWndExtra: 0,
         hInstance: hinstance,
-        hIcon: null_mut(),
+        hIcon: app_icon(hinstance),
         hCursor: unsafe { LoadCursorW(null_mut(), IDC_ARROW) },
         hbrBackground: background,
         lpszMenuName: null(),
@@ -1777,6 +1780,26 @@ fn register_class(
         );
     }
     Ok(())
+}
+
+fn set_window_icon(hwnd: HWND, hinstance: HINSTANCE) {
+    let icon = app_icon(hinstance);
+    if icon.is_null() {
+        return;
+    }
+
+    unsafe {
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon as LPARAM);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as WPARAM, icon as LPARAM);
+    }
+}
+
+fn app_icon(hinstance: HINSTANCE) -> HICON {
+    unsafe { LoadIconW(hinstance, int_resource(IDI_APP_ICON)) }
+}
+
+fn int_resource(id: u16) -> *const u16 {
+    id as usize as *const u16
 }
 
 fn set_window_text(hwnd: HWND, text: &str) {
