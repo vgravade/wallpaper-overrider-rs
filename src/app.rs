@@ -40,6 +40,7 @@ use windows_sys::Win32::{
         },
         HiDpi::{GetDpiForSystem, GetDpiForWindow, SystemParametersInfoForDpi},
         Input::KeyboardAndMouse::EnableWindow,
+        Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP},
         WindowsAndMessaging::{
             AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
             GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
@@ -49,10 +50,10 @@ use windows_sys::Win32::{
             CB_SETCURSEL, CREATESTRUCTW, GWLP_USERDATA, HMENU, IDC_ARROW, MSG, NONCLIENTMETRICSW,
             SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE,
             SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT,
-            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_ERASEBKGND, WM_NCCREATE,
-            WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
-            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
-            WS_TABSTOP, WS_VISIBLE,
+            WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM, WM_DROPFILES, WM_ERASEBKGND,
+            WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION,
+            WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP,
+            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -99,6 +100,7 @@ const BS_OWNERDRAW: u32 = 0x0000_000b;
 const ODS_SELECTED: u32 = 0x0001;
 const ODS_DISABLED: u32 = 0x0004;
 const ODS_HOTLIGHT: u32 = 0x0040;
+const DRAG_QUERY_FILE_COUNT: u32 = 0xffff_ffff;
 
 const ID_BROWSE: isize = 1001;
 const ID_STYLE: isize = 1002;
@@ -387,6 +389,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         let app = &mut *app_ptr;
         app.dpi = GetDpiForWindow(hwnd).max(96);
         enable_modern_window_chrome(hwnd, app.theme);
+        DragAcceptFiles(hwnd, 1);
         resize_window_for_dpi(hwnd, app.dpi);
         layout_controls(app);
         InvalidateRect(app.preview_hwnd, null(), 1);
@@ -519,14 +522,28 @@ impl NativeApp {
 
     fn browse(&mut self) {
         if let Some(path) = open_image_dialog(self.hwnd, self.lang) {
-            self.wallpaper_path = Some(path);
-            self.rebuild_preview();
-            self.refresh_path_text();
-            self.set_status("");
-            self.refresh_apply_enabled();
-            unsafe {
-                InvalidateRect(self.preview_hwnd, null(), 1);
-            }
+            self.select_wallpaper_path(path);
+        }
+    }
+
+    fn select_wallpaper_path(&mut self, path: PathBuf) {
+        self.wallpaper_path = Some(path);
+        self.rebuild_preview();
+        self.refresh_path_text();
+        self.set_status("");
+        self.refresh_apply_enabled();
+        unsafe {
+            InvalidateRect(self.preview_hwnd, null(), 1);
+        }
+    }
+
+    fn handle_drop(&mut self, drop: HDROP) {
+        let path = first_dropped_file(drop);
+        unsafe {
+            DragFinish(drop);
+        }
+        if let Some(path) = path.filter(|path| is_supported_image_path(path)) {
+            self.select_wallpaper_path(path);
         }
     }
 
@@ -696,6 +713,10 @@ unsafe extern "system" fn window_proc(
                 while let Ok(result) = app.apply_rx.try_recv() {
                     app.handle_apply_result(result);
                 }
+                0
+            }
+            WM_DROPFILES => {
+                app.handle_drop(wparam as HDROP);
                 0
             }
             WM_SETTINGCHANGE => {
@@ -1508,6 +1529,42 @@ fn open_image_dialog(owner: HWND, lang: Language) -> Option<PathBuf> {
     }
 
     Some(PathBuf::from(String::from_utf16_lossy(&file_buffer[..len])))
+}
+
+fn first_dropped_file(drop: HDROP) -> Option<PathBuf> {
+    let count = unsafe { DragQueryFileW(drop, DRAG_QUERY_FILE_COUNT, null_mut(), 0) };
+    if count == 0 {
+        return None;
+    }
+
+    let len = unsafe { DragQueryFileW(drop, 0, null_mut(), 0) };
+    if len == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u16; len as usize + 1];
+    let copied = unsafe { DragQueryFileW(drop, 0, buffer.as_mut_ptr(), buffer.len() as u32) };
+    if copied == 0 {
+        return None;
+    }
+
+    Some(PathBuf::from(String::from_utf16_lossy(
+        &buffer[..copied as usize],
+    )))
+}
+
+fn is_supported_image_path(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(OsStr::to_str)
+            .map(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "jpg" | "jpeg" | "png" | "bmp"
+                )
+            })
+            .unwrap_or(false)
 }
 
 fn load_preview_work_image(path: &Path) -> anyhow::Result<DynamicImage> {
