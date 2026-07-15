@@ -17,7 +17,7 @@ pub enum WallpaperStyle {
 
 impl WallpaperStyle {
     /// Numeric string stored in the registry.
-    pub fn code(self) -> &'static str {
+    pub const fn code(self) -> &'static str {
         match self {
             Self::Center => "0",
             Self::Tile => "1",
@@ -28,7 +28,7 @@ impl WallpaperStyle {
         }
     }
 
-    pub fn all() -> &'static [WallpaperStyle] {
+    pub const fn all() -> &'static [Self] {
         &[
             Self::Center,
             Self::Tile,
@@ -91,7 +91,11 @@ mod tests {
         for (code, style) in cases {
             assert_eq!(style.code(), code);
             assert_eq!(WallpaperStyle::from_code(code), Some(style));
-            assert_eq!(code.parse::<WallpaperStyle>().unwrap(), style);
+            let parsed = code.parse::<WallpaperStyle>();
+            assert!(parsed.is_ok());
+            if let Ok(p) = parsed {
+                assert_eq!(p, style);
+            }
         }
     }
 
@@ -107,7 +111,11 @@ mod tests {
         ];
 
         for (input, style) in cases {
-            assert_eq!(input.parse::<WallpaperStyle>().unwrap(), style);
+            let parsed = input.parse::<WallpaperStyle>();
+            assert!(parsed.is_ok());
+            if let Ok(p) = parsed {
+                assert_eq!(p, style);
+            }
         }
     }
 

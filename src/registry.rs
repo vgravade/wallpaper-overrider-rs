@@ -8,18 +8,20 @@ use std::{
     ffi::{OsStr, OsString},
     path::Path,
 };
-use winreg::{enums::*, RegKey};
+use winreg::{
+    RegKey,
+    enums::{HKEY_CURRENT_USER, HKEY_USERS},
+};
 
 use crate::wallpaper_style::WallpaperStyle;
 
 const POLICIES_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Policies\System";
 
 /// Read the currently forced wallpaper path and style from HKCU.
-pub fn get_current_wallpaper() -> Result<(Option<OsString>, Option<WallpaperStyle>)> {
+pub fn get_current_wallpaper() -> (Option<OsString>, Option<WallpaperStyle>) {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = match hkcu.open_subkey(POLICIES_PATH) {
-        Ok(k) => k,
-        Err(_) => return Ok((None, None)),
+    let Ok(key) = hkcu.open_subkey(POLICIES_PATH) else {
+        return (None, None);
     };
 
     let wallpaper: Option<OsString> = key.get_value("Wallpaper").ok();
@@ -28,7 +30,7 @@ pub fn get_current_wallpaper() -> Result<(Option<OsString>, Option<WallpaperStyl
         .ok()
         .and_then(|s| WallpaperStyle::from_code(&s));
 
-    Ok((wallpaper, style))
+    (wallpaper, style)
 }
 
 /// Write wallpaper and style to HKCU — no elevation required.
@@ -83,12 +85,24 @@ fn is_sid_path_component(sid: &str) -> bool {
 }
 
 #[cfg(windows)]
+struct OwnedSid(windows_sys::Win32::Security::PSID);
+
+#[cfg(windows)]
+impl Drop for OwnedSid {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: Standard Windows API call to release memory allocated by ConvertStringSidToSidW.
+            unsafe {
+                let _ = windows_sys::Win32::Foundation::LocalFree(self.0.cast());
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
 fn validate_windows_sid(sid: &str) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::{
-        Foundation::LocalFree,
-        Security::{Authorization::ConvertStringSidToSidW, IsValidSid, PSID},
-    };
+    use windows_sys::Win32::Security::{Authorization::ConvertStringSidToSidW, IsValidSid, PSID};
 
     let wide: Vec<u16> = OsStr::new(sid)
         .encode_wide()
@@ -98,13 +112,12 @@ fn validate_windows_sid(sid: &str) -> Result<()> {
 
     // ConvertStringSidToSidW allocates with LocalAlloc; LocalFree is required
     // even when the subsequent IsValidSid check fails.
-    let converted = unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut sid_ptr) != 0 };
-    let valid = converted && !sid_ptr.is_null() && unsafe { IsValidSid(sid_ptr) != 0 };
-    if !sid_ptr.is_null() {
-        unsafe {
-            let _ = LocalFree(sid_ptr.cast());
-        }
-    }
+    // SAFETY: Standard Windows API call that allocates a SID structure.
+    let converted = unsafe { ConvertStringSidToSidW(wide.as_ptr(), &raw mut sid_ptr) != 0 };
+    let owned_sid = OwnedSid(sid_ptr);
+
+    // SAFETY: Standard Windows API call to validate if the PSID points to a valid SID structure.
+    let valid = converted && !owned_sid.0.is_null() && unsafe { IsValidSid(owned_sid.0) != 0 };
 
     anyhow::ensure!(valid, "Invalid Windows SID: {sid}");
     Ok(())
@@ -122,19 +135,23 @@ pub fn refresh_wallpaper_session(path: &Path) -> Result<()> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
+        SPI_SETDESKWALLPAPER, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SystemParametersInfoW,
     };
 
-    let wide: Vec<u16> = OsStr::new(path)
+    let mut wide: Vec<u16> = OsStr::new(path)
         .encode_wide()
         .chain(std::iter::once(0u16))
         .collect();
 
+    // SAFETY: SystemParametersInfoW with SPI_SETDESKWALLPAPER reads the
+    // null-terminated path string without writing to it. The Vec buffer
+    // outlives the call and as_mut_ptr yields a proper *mut u16 matching
+    // the API's declared pvParam mutability.
     let ok = unsafe {
         SystemParametersInfoW(
             SPI_SETDESKWALLPAPER,
             0,
-            wide.as_ptr() as *mut _,
+            wide.as_mut_ptr().cast(),
             SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
         ) != 0
     };

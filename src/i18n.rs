@@ -51,7 +51,7 @@ struct WallpaperStyleTexts {
 }
 
 impl WallpaperStyleTexts {
-    fn label(&self, style: WallpaperStyle) -> &'static str {
+    const fn label(&self, style: WallpaperStyle) -> &'static str {
         match style {
             WallpaperStyle::Center => self.center,
             WallpaperStyle::Tile => self.tile,
@@ -481,7 +481,7 @@ impl Language {
         }
     }
 
-    fn texts(self) -> &'static Texts {
+    const fn texts(self) -> &'static Texts {
         match self {
             Self::English => &EN,
             Self::French => &FR,
@@ -498,59 +498,59 @@ impl Language {
         }
     }
 
-    pub fn app_title(self) -> &'static str {
+    pub const fn app_title(self) -> &'static str {
         self.texts().app_title
     }
 
-    pub fn choose_picture(self) -> &'static str {
+    pub const fn choose_picture(self) -> &'static str {
         self.texts().choose_picture
     }
 
-    pub fn empty_path(self) -> &'static str {
+    pub const fn empty_path(self) -> &'static str {
         self.texts().empty_path
     }
 
-    pub fn empty_preview_title(self) -> &'static str {
+    pub const fn empty_preview_title(self) -> &'static str {
         self.texts().empty_preview_title
     }
 
-    pub fn images_filter(self) -> &'static str {
+    pub const fn images_filter(self) -> &'static str {
         self.texts().images_filter
     }
 
-    pub fn browse_button(self) -> &'static str {
+    pub const fn browse_button(self) -> &'static str {
         self.texts().browse_button
     }
 
-    pub fn choose_fit(self) -> &'static str {
+    pub const fn choose_fit(self) -> &'static str {
         self.texts().choose_fit
     }
 
-    pub fn wallpaper_style(self, style: WallpaperStyle) -> &'static str {
+    pub const fn wallpaper_style(self, style: WallpaperStyle) -> &'static str {
         self.texts().wallpaper_styles.label(style)
     }
 
-    pub fn apply_button(self) -> &'static str {
+    pub const fn apply_button(self) -> &'static str {
         self.texts().apply_button
     }
 
-    pub fn close_button(self) -> &'static str {
+    pub const fn close_button(self) -> &'static str {
         self.texts().close_button
     }
 
-    pub fn applying_wallpaper(self) -> &'static str {
+    pub const fn applying_wallpaper(self) -> &'static str {
         self.texts().applying_wallpaper
     }
 
-    pub fn no_changes_to_apply(self) -> &'static str {
+    pub const fn no_changes_to_apply(self) -> &'static str {
         self.texts().no_changes_to_apply
     }
 
-    pub fn no_wallpaper_selected(self) -> &'static str {
+    pub const fn no_wallpaper_selected(self) -> &'static str {
         self.texts().no_wallpaper_selected
     }
 
-    pub fn file_no_longer_exists(self) -> &'static str {
+    pub const fn file_no_longer_exists(self) -> &'static str {
         self.texts().file_no_longer_exists
     }
 
@@ -558,7 +558,7 @@ impl Language {
         format!("{}{err}", self.texts().failed_resolve_sid)
     }
 
-    pub fn wallpaper_applied(self) -> &'static str {
+    pub const fn wallpaper_applied(self) -> &'static str {
         self.texts().wallpaper_applied
     }
 

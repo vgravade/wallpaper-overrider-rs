@@ -19,12 +19,12 @@ use wallpaper_style::WallpaperStyle;
 ///
 /// Without arguments the graphical interface is shown (for the current user).
 /// Passing --target-sid enables **broker mode**: the wallpaper is written for
-/// another user's hive (HKEY_USERS\<SID>) and administrator privileges are
+/// another user's hive (`HKEY_USERS`\<SID>) and administrator privileges are
 /// required — the process will request UAC elevation automatically if needed.
 #[derive(Parser)]
 #[command(author, version)]
 struct Cli {
-    /// Target user SID — writes to HKEY_USERS\<SID> instead of HKCU.
+    /// Target user SID — writes to `HKEY_USERS`\<SID> instead of HKCU.
     /// Requires administrator privileges (UAC prompt will appear if needed).
     #[arg(long)]
     target_sid: Option<String>,

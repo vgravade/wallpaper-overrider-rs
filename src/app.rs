@@ -3,7 +3,7 @@
 //! The UI is intentionally implemented without a framework to keep the release binary small.
 //! Most helpers below exist to make the Win32 ownership and DPI rules explicit.
 
-use image::{imageops::FilterType, DynamicImage, ImageReader, Limits, RgbaImage};
+use image::{DynamicImage, ImageReader, Limits, RgbaImage, imageops::FilterType};
 use std::{
     ffi::{OsStr, OsString},
     mem::{size_of, zeroed},
@@ -15,31 +15,31 @@ use std::{
 };
 
 use windows::{
-    core::{w, PCWSTR},
     Win32::{
         Foundation::HWND as WindowsHwnd,
         System::Com::{
-            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
-            COINIT_APARTMENTTHREADED,
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+            CoTaskMemFree, CoUninitialize,
         },
         UI::Shell::{
-            Common::COMDLG_FILTERSPEC, FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST,
-            FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, SIGDN_FILESYSPATH,
+            Common::COMDLG_FILTERSPEC, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
+            FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
         },
     },
+    core::{PCWSTR, w},
 };
 use windows_sys::Win32::{
     Foundation::{
-        GetLastError, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+        ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
     },
     Graphics::{
         Dwm::DwmSetWindowAttribute,
         Gdi::{
-            BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint,
-            FillRect, FrameRect, GetStockObject, InvalidateRect, SelectObject, SetBkColor,
-            SetBkMode, SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER,
-            BI_RGB, COLOR_WINDOW, DEFAULT_GUI_FONT, DIB_RGB_COLORS, HBRUSH, HDC, HFONT,
-            PAINTSTRUCT, RGBQUAD, SRCCOPY, TRANSPARENT,
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, COLOR_WINDOW, CreateFontIndirectW,
+            CreateSolidBrush, DEFAULT_GUI_FONT, DIB_RGB_COLORS, DeleteObject, DrawTextW, EndPaint,
+            FillRect, FrameRect, GetStockObject, HBRUSH, HDC, HFONT, HGDIOBJ, InvalidateRect,
+            PAINTSTRUCT, RGBQUAD, SRCCOPY, SelectObject, SetBkColor, SetBkMode, SetTextColor,
+            StretchDIBits, TRANSPARENT, UpdateWindow,
         },
     },
     System::LibraryLoader::GetModuleHandleW,
@@ -52,23 +52,23 @@ use windows_sys::Win32::{
         Input::KeyboardAndMouse::EnableWindow,
         Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP},
         WindowsAndMessaging::{
-            AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-            GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
-            GetWindowTextW, LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW,
-            SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-            TranslateMessage, CBN_SELCHANGE, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-            CB_SETCURSEL, CREATESTRUCTW, GWLP_USERDATA, HICON, HMENU, ICON_BIG, ICON_SMALL,
-            IDC_ARROW, MSG, NONCLIENTMETRICSW, SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS,
-            SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_COMMAND,
-            WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_DRAWITEM,
-            WM_DROPFILES, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT, WM_SETICON,
-            WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
-            WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP,
-            WS_VISIBLE,
+            AdjustWindowRectEx, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE,
+            CBS_DROPDOWNLIST, CREATESTRUCTW, CreateWindowExW, DefWindowProcW, DestroyWindow,
+            DispatchMessageW, GWLP_USERDATA, GetClientRect, GetMessageW, GetSystemMetrics,
+            GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, HICON, HMENU, ICON_BIG,
+            ICON_SMALL, IDC_ARROW, LoadCursorW, LoadIconW, MSG, NONCLIENTMETRICSW, PostMessageW,
+            PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SPI_GETNONCLIENTMETRICS,
+            SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetWindowLongPtrW,
+            SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_APP,
+            WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
+            WM_DRAWITEM, WM_DROPFILES, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT,
+            WM_SETICON, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
+            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
+            WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
-use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
 use crate::{elevation, i18n::Language, registry, wallpaper_style::WallpaperStyle};
 
@@ -131,19 +131,56 @@ struct OwnedBrush(HBRUSH);
 
 impl OwnedBrush {
     fn solid(color: u32) -> Option<Self> {
+        // SAFETY: Standard Windows API call or safe dereference.
         let brush = unsafe { CreateSolidBrush(color) };
         (!brush.is_null()).then_some(Self(brush))
     }
 
-    fn get(&self) -> HBRUSH {
+    const fn get(&self) -> HBRUSH {
         self.0
     }
 }
 
 impl Drop for OwnedBrush {
     fn drop(&mut self) {
+        // SAFETY: Standard Windows API call or safe dereference.
         unsafe {
             let _ = DeleteObject(self.0);
+        }
+    }
+}
+
+// GDI fonts returned by CreateFontIndirectW must be released with DeleteObject
+// if they are not stock objects.
+struct OwnedFont {
+    font: HFONT,
+    owned: bool,
+}
+
+impl OwnedFont {
+    const fn new(font: HFONT, owned: bool) -> Self {
+        Self { font, owned }
+    }
+
+    const fn empty() -> Self {
+        Self {
+            font: null_mut(),
+            owned: false,
+        }
+    }
+
+    const fn get(&self) -> HFONT {
+        self.font
+    }
+}
+
+impl Drop for OwnedFont {
+    fn drop(&mut self) {
+        if self.owned && !self.font.is_null() {
+            // SAFETY: Standard Windows API call to delete a GDI font object.
+            unsafe {
+                let _ = DeleteObject(self.font);
+            }
         }
     }
 }
@@ -160,6 +197,7 @@ struct ComApartment {
 
 impl ComApartment {
     fn init() -> Self {
+        // SAFETY: Standard Windows API call or safe dereference.
         let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
         Self {
             needs_uninit: result.is_ok(),
@@ -170,6 +208,7 @@ impl ComApartment {
 impl Drop for ComApartment {
     fn drop(&mut self) {
         if self.needs_uninit {
+            // SAFETY: Standard Windows API call or safe dereference.
             unsafe {
                 CoUninitialize();
             }
@@ -227,7 +266,7 @@ impl UiTheme {
         }
     }
 
-    fn palette(self) -> Palette {
+    const fn palette(self) -> Palette {
         match self {
             Self::Light => Palette {
                 window_bg: rgb(246, 248, 251),
@@ -305,8 +344,7 @@ struct NativeApp {
     close_hwnd: HWND,
     path_tooltip_hwnd: HWND,
     path_tooltip_text: Vec<u16>,
-    ui_font: HFONT,
-    ui_font_owned: bool,
+    ui_font: OwnedFont,
     wallpaper_path: Option<PathBuf>,
     style: WallpaperStyle,
     applied_wallpaper_path: Option<PathBuf>,
@@ -319,6 +357,7 @@ struct NativeApp {
 }
 
 pub fn run(lang: Language) -> anyhow::Result<()> {
+    // SAFETY: Standard Windows API call or safe dereference.
     let hinstance = unsafe { GetModuleHandleW(null()) };
     anyhow::ensure!(!hinstance.is_null(), "GetModuleHandleW failed");
 
@@ -346,13 +385,14 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 
     // Registry reads are best-effort: a missing or unreadable policy should not
     // prevent the picker from opening with an empty selection.
-    let (wallpaper_str, style) = registry::get_current_wallpaper().unwrap_or((None, None));
+    let (wallpaper_str, style) = registry::get_current_wallpaper();
     let wallpaper_path = wallpaper_str.map(PathBuf::from).filter(|p| p.is_file());
     let style = style.unwrap_or_default();
     let preview = wallpaper_path
         .as_deref()
         .and_then(|path| build_preview_bitmap(path, style).ok());
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let initial_dpi = unsafe { GetDpiForSystem().max(96) };
     let (apply_tx, apply_rx) = mpsc::channel();
     let theme = UiTheme::detect();
@@ -374,8 +414,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         close_hwnd: null_mut(),
         path_tooltip_hwnd: null_mut(),
         path_tooltip_text: Vec::new(),
-        ui_font: null_mut(),
-        ui_font_owned: false,
+        ui_font: OwnedFont::empty(),
         wallpaper_path: wallpaper_path.clone(),
         style,
         applied_wallpaper_path: wallpaper_path,
@@ -395,17 +434,21 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         right: scale(WINDOW_W, initial_dpi),
         bottom: scale(WINDOW_H, initial_dpi),
     };
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
-        AdjustWindowRectEx(&mut rect, style_flags, 0, ex_style);
+        AdjustWindowRectEx(&raw mut rect, style_flags, 0, ex_style);
     }
     let window_w = rect.right - rect.left;
     let window_h = rect.bottom - rect.top;
+    // SAFETY: Standard Windows API call or safe dereference.
     let x = (unsafe { GetSystemMetrics(SM_CXSCREEN) } - window_w) / 2;
+    // SAFETY: Standard Windows API call or safe dereference.
     let y = (unsafe { GetSystemMetrics(SM_CYSCREEN) } - window_h) / 2;
 
     let title = wide(lang.app_title());
     // The boxed state is handed to Win32 and reclaimed on WM_DESTROY.
     let app_ptr = Box::into_raw(app);
+    // SAFETY: Standard Windows API call or safe dereference.
     let hwnd = unsafe {
         CreateWindowExW(
             ex_style,
@@ -423,35 +466,59 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         )
     };
     if hwnd.is_null() {
+        // SAFETY: Standard Windows API call or safe dereference.
         unsafe {
             drop(Box::from_raw(app_ptr));
         }
         anyhow::bail!("CreateWindowExW failed: {}", last_error());
     }
 
+    let dpi = win_dpi(hwnd);
+    // Update the field via raw-pointer store instead of `&mut *app_ptr`. Any
+    // subsequent Win32 call below (SetWindowPos, ShowWindow, SendMessageW for
+    // WM_SETICON, UpdateWindow) can re-enter window_proc and create its own
+    // `&mut *app`; holding a long-lived mutable reference across those calls
+    // would violate Rust's aliasing rules even though no shared read/write
+    // happens. We therefore copy scalar fields out of the boxed app and free
+    // the borrow before each call sequence that may re-enter.
+    // SAFETY: app_ptr references a valid NativeApp allocated in run().
     unsafe {
-        let app = &mut *app_ptr;
-        app.dpi = GetDpiForWindow(hwnd).max(96);
-        enable_modern_window_chrome(hwnd, app.theme);
-        set_window_icon(hwnd, hinstance);
-        DragAcceptFiles(hwnd, 1);
-        resize_window_for_dpi(hwnd, app.dpi);
-        layout_controls(app);
-        InvalidateRect(app.preview_hwnd, null(), 1);
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
+        (*app_ptr).dpi = dpi;
     }
+    // SAFETY: see above; reads are short-lived copy-style accesses.
+    let detected_theme = unsafe { (*app_ptr).theme };
+    // SAFETY: see above.
+    let preview_hwnd = unsafe { (*app_ptr).preview_hwnd };
+    enable_modern_window_chrome(hwnd, detected_theme);
+    set_window_icon(hwnd, hinstance);
+    // SAFETY: Standard Windows API call or safe dereference.
+    unsafe {
+        DragAcceptFiles(hwnd, 1);
+    }
+    resize_window_for_dpi(hwnd, dpi);
+    // SAFETY: layout_controls takes a shared reference scoped to this call only;
+    // it calls SetWindowPos on child windows whose procedures do not borrow app.
+    layout_controls(unsafe { &*app_ptr });
+    win_invalidate(preview_hwnd);
+    win_show(hwnd);
+    win_update(hwnd);
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let mut msg: MSG = unsafe { zeroed() };
     loop {
-        let ret = unsafe { GetMessageW(&mut msg, null_mut(), 0, 0) };
-        if ret == 0 {
+        // SAFETY: Standard Windows API call or safe dereference.
+        let status = unsafe { GetMessageW(&raw mut msg, null_mut(), 0, 0) };
+        if status == 0 {
             break;
         }
-        anyhow::ensure!(ret != -1, "GetMessageW failed: {}", last_error());
+        anyhow::ensure!(status != -1, "GetMessageW failed: {}", last_error());
+        // SAFETY: Standard Windows API call or safe dereference.
         unsafe {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            TranslateMessage(&raw const msg);
+        }
+        // SAFETY: Standard Windows API call or safe dereference.
+        unsafe {
+            DispatchMessageW(&raw const msg);
         }
     }
 
@@ -459,7 +526,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
 }
 
 impl NativeApp {
-    fn palette(&self) -> Palette {
+    const fn palette(&self) -> Palette {
         self.theme.palette()
     }
 
@@ -473,11 +540,15 @@ impl NativeApp {
             self.window_bg_brush = brush;
         }
         enable_modern_window_chrome(self.hwnd, self.theme);
+        win_invalidate(self.hwnd);
+        // SAFETY: Standard Windows API call or safe dereference.
         unsafe {
-            InvalidateRect(self.hwnd, null(), 1);
             InvalidateRect(self.preview_hwnd, null(), 1);
-            InvalidateRect(self.browse_hwnd, null(), 1);
-            InvalidateRect(self.apply_hwnd, null(), 1);
+        }
+        win_invalidate(self.browse_hwnd);
+        win_invalidate(self.apply_hwnd);
+        // SAFETY: Standard Windows API call or safe dereference.
+        unsafe {
             InvalidateRect(self.close_hwnd, null(), 1);
         }
     }
@@ -487,12 +558,9 @@ impl NativeApp {
     }
 
     fn layout_dpi(&self) -> u32 {
-        let mut rect: RECT = unsafe { zeroed() };
-        let has_client =
-            unsafe { !self.hwnd.is_null() && GetClientRect(self.hwnd, &mut rect) != 0 };
-        if !has_client {
+        let Some(rect) = win_get_client_rect(self.hwnd) else {
             return self.dpi.max(96);
-        }
+        };
 
         let client_w = rect.right - rect.left;
         let client_h = rect.bottom - rect.top;
@@ -513,31 +581,28 @@ impl NativeApp {
     }
 
     fn refresh_apply_enabled(&self) {
-        unsafe {
-            EnableWindow(self.apply_hwnd, self.can_apply() as i32);
-            InvalidateRect(self.apply_hwnd, null(), 1);
-        }
+        win_enable(self.apply_hwnd, self.can_apply());
+        win_invalidate(self.apply_hwnd);
     }
 
     fn refresh_path_text(&mut self) {
-        let display = self
-            .wallpaper_path
-            .as_deref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| self.lang.empty_path().to_owned());
+        let display = self.wallpaper_path.as_deref().map_or_else(
+            || self.lang.empty_path().to_owned(),
+            |path| path.display().to_string(),
+        );
         set_window_text(self.path_hwnd, &display);
         self.update_path_tooltip(&display);
-        unsafe {
-            InvalidateRect(self.path_hwnd, null(), 1);
-        }
+        win_invalidate(self.path_hwnd);
     }
 
     fn path_display_name(&self) -> String {
         self.wallpaper_path
             .as_deref()
             .and_then(Path::file_name)
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.lang.empty_path().to_owned())
+            .map_or_else(
+                || self.lang.empty_path().to_owned(),
+                |name| name.to_string_lossy().into_owned(),
+            )
     }
 
     fn update_path_tooltip(&mut self, text: &str) {
@@ -551,14 +616,13 @@ impl NativeApp {
             self.path_hwnd,
             self.path_tooltip_text.as_mut_ptr(),
         );
-        unsafe {
-            SendMessageW(
-                self.path_tooltip_hwnd,
-                TTM_SETTOOLINFOW,
-                0,
-                (&mut tool as *mut TTTOOLINFOW) as LPARAM,
-            );
-        }
+        let tool_ptr = &raw mut tool;
+        win_send_msg(
+            self.path_tooltip_hwnd,
+            TTM_SETTOOLINFOW,
+            0,
+            tool_ptr as LPARAM,
+        );
     }
 
     fn set_status(&self, text: &str) {
@@ -577,23 +641,19 @@ impl NativeApp {
         self.refresh_path_text();
         self.set_status("");
         self.refresh_apply_enabled();
-        unsafe {
-            InvalidateRect(self.preview_hwnd, null(), 1);
-        }
+        win_invalidate(self.preview_hwnd);
     }
 
-    fn handle_drop(&mut self, drop: HDROP) {
-        let path = first_dropped_file(drop);
-        unsafe {
-            DragFinish(drop);
-        }
+    fn handle_drop(&mut self, drop: OwnedHDROP) {
+        let path = first_dropped_file(drop.0);
         if let Some(path) = path.filter(|path| is_supported_image_path(path)) {
             self.select_wallpaper_path(path);
         }
+        std::mem::drop(drop);
     }
 
     fn set_style_from_combo(&mut self) {
-        let index = unsafe { SendMessageW(self.style_hwnd, CB_GETCURSEL, 0, 0) };
+        let index = win_send_msg(self.style_hwnd, CB_GETCURSEL, 0, 0);
         if index < 0 {
             return;
         }
@@ -608,9 +668,7 @@ impl NativeApp {
         self.style = style;
         self.rebuild_preview();
         self.refresh_apply_enabled();
-        unsafe {
-            InvalidateRect(self.preview_hwnd, null(), 1);
-        }
+        win_invalidate(self.preview_hwnd);
     }
 
     fn rebuild_preview(&mut self) {
@@ -653,11 +711,8 @@ impl NativeApp {
                 result,
             };
             if tx.send(message).is_ok() {
-                unsafe {
-                    // Marshal completion back to the UI thread before touching HWND state.
-                    let _ = PostMessageW(hwnd as HWND, WM_APPLY_DONE, 0, 0);
-                }
-            };
+                win_post_msg(hwnd as HWND, WM_APPLY_DONE, 0, 0);
+            }
         });
     }
 
@@ -681,59 +736,97 @@ unsafe extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // SAFETY: Windows calls this procedure with message-specific pointer payloads.
-    unsafe {
-        if msg == WM_NCCREATE {
-            // WM_NCCREATE is the first reliable point where lpCreateParams is available.
-            // Store the app pointer in GWLP_USERDATA so later messages can find it.
-            let createstruct = lparam as *const CREATESTRUCTW;
-            let app = (*createstruct).lpCreateParams as *mut NativeApp;
-            (*app).hwnd = hwnd;
-            (*app).dpi = GetDpiForWindow(hwnd).max(96);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
-        }
-
-        let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp;
-        if app.is_null() {
-            return DefWindowProcW(hwnd, msg, wparam, lparam);
-        }
-        let app = &mut *app;
-
-        match msg {
-            WM_CREATE => {
-                app.dpi = GetDpiForWindow(hwnd).max(96);
-                enable_modern_window_chrome(hwnd, app.theme);
-                match create_controls(app) {
-                    Ok(()) => 0,
-                    Err(_) => -1,
+    // Note : Windows appelle cette procédure avec des pointeurs de messages spécifiques.
+    if msg == WM_NCCREATE {
+        // WM_NCCREATE is the first reliable point where lpCreateParams is available.
+        // Store the app pointer in GWLP_USERDATA so later messages can find it.
+        let createstruct = lparam as *const CREATESTRUCTW;
+        if !createstruct.is_null() {
+            // SAFETY: lpCreateParams contains the pointer passed to CreateWindowExW.
+            let app = unsafe { (*createstruct).lpCreateParams.cast::<NativeApp>() };
+            if !app.is_null() {
+                // SAFETY: app points to a valid NativeApp allocated in run().
+                unsafe {
+                    (*app).hwnd = hwnd;
+                }
+                // SAFETY: Standard Windows API call.
+                let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+                // SAFETY: app points to a valid NativeApp allocated in run().
+                unsafe {
+                    (*app).dpi = dpi;
+                }
+                // SAFETY: Standard Windows API call to store the app pointer.
+                unsafe {
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
                 }
             }
-            WM_ERASEBKGND => {
-                paint_window_background(hwnd, wparam as HDC, app);
-                1
+        }
+    }
+
+    // SAFETY: Standard Windows API call or safe dereference.
+    let app = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp };
+    if app.is_null() {
+        return win_def_proc(hwnd, msg, wparam, lparam);
+    }
+
+    // WM_DESTROY reclaims the boxed NativeApp via the raw pointer obtained from
+    // GWLP_USERDATA. Handle it before creating any `&mut *app`: dropping the Box
+    // through an outstanding mutable reference would violate Rust's aliasing
+    // rules even though the reference is never read afterwards.
+    if msg == WM_DESTROY {
+        // SAFETY: Standard Windows API call to clear user data before drop.
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        }
+        // SAFETY: app was allocated by Box::into_raw in run() and stored in
+        // GWLP_USERDATA; we are the sole owner and the box is reclaimed exactly once.
+        drop(unsafe { Box::from_raw(app) });
+        win_post_quit(0);
+        return 0;
+    }
+
+    // SAFETY: app points to a valid NativeApp allocated in run(); for every
+    // message below this point the GWLP_USERDATA slot is still non-null.
+    let app = unsafe { &mut *app };
+
+    match msg {
+        WM_CREATE => {
+            // SAFETY: Standard Windows API call or safe dereference.
+            let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+            app.dpi = dpi;
+            enable_modern_window_chrome(hwnd, app.theme);
+            match create_controls(app) {
+                Ok(()) => 0,
+                Err(_) => -1,
             }
-            WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
-                style_text_control(wparam as HDC, lparam as HWND, app)
+        }
+        WM_ERASEBKGND => {
+            paint_window_background(hwnd, wparam as HDC, app);
+            1
+        }
+        WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
+            style_text_control(wparam as HDC, lparam as HWND, app)
+        }
+        WM_DRAWITEM => draw_button(lparam as *const DRAWITEMSTRUCT, app),
+        WM_COMMAND => {
+            let id = loword(wparam) as isize;
+            let notification = u32::from(hiword(wparam));
+            match id {
+                ID_BROWSE => app.browse(),
+                ID_STYLE if notification == CBN_SELCHANGE => app.set_style_from_combo(),
+                ID_APPLY => app.apply(),
+                ID_CLOSE => win_destroy(hwnd),
+                _ => {}
             }
-            WM_DRAWITEM => draw_button(lparam as *const DRAWITEMSTRUCT, app),
-            WM_COMMAND => {
-                let id = loword(wparam) as isize;
-                let notification = hiword(wparam) as u32;
-                match id {
-                    ID_BROWSE => app.browse(),
-                    ID_STYLE if notification == CBN_SELCHANGE => app.set_style_from_combo(),
-                    ID_APPLY => app.apply(),
-                    ID_CLOSE => {
-                        DestroyWindow(hwnd);
-                    }
-                    _ => {}
-                }
-                0
-            }
-            WM_DPICHANGED => {
-                app.dpi = hiword(wparam) as u32;
-                if lparam != 0 {
-                    let rect = &*(lparam as *const RECT);
+            0
+        }
+        WM_DPICHANGED => {
+            app.dpi = u32::from(hiword(wparam));
+            if lparam != 0 {
+                // SAFETY: Standard Windows API call or safe dereference.
+                let rect = unsafe { &*(lparam as *const RECT) };
+                // SAFETY: Standard Windows API call or safe dereference.
+                unsafe {
                     SetWindowPos(
                         hwnd,
                         null_mut(),
@@ -744,44 +837,32 @@ unsafe extern "system" fn window_proc(
                         SWP_NOZORDER | SWP_NOACTIVATE,
                     );
                 }
-                update_ui_font(app);
-                layout_controls(app);
-                InvalidateRect(app.preview_hwnd, null(), 1);
-                0
             }
-            WM_SIZE => {
-                layout_controls(app);
-                InvalidateRect(app.preview_hwnd, null(), 1);
-                0
-            }
-            WM_APPLY_DONE => {
-                while let Ok(result) = app.apply_rx.try_recv() {
-                    app.handle_apply_result(result);
-                }
-                0
-            }
-            WM_DROPFILES => {
-                app.handle_drop(wparam as HDROP);
-                0
-            }
-            WM_SETTINGCHANGE => {
-                app.refresh_theme();
-                0
-            }
-            WM_DESTROY => {
-                let app_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp;
-                if !app_ptr.is_null() {
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-                    if (*app_ptr).ui_font_owned && !(*app_ptr).ui_font.is_null() {
-                        DeleteObject((*app_ptr).ui_font);
-                    }
-                    drop(Box::from_raw(app_ptr));
-                }
-                PostQuitMessage(0);
-                0
-            }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            update_ui_font(app);
+            layout_controls(app);
+            win_invalidate(app.preview_hwnd);
+            0
         }
+        WM_SIZE => {
+            layout_controls(app);
+            win_invalidate(app.preview_hwnd);
+            0
+        }
+        WM_APPLY_DONE => {
+            while let Ok(result) = app.apply_rx.try_recv() {
+                app.handle_apply_result(result);
+            }
+            0
+        }
+        WM_DROPFILES => {
+            app.handle_drop(OwnedHDROP(wparam as HDROP));
+            0
+        }
+        WM_SETTINGCHANGE => {
+            app.refresh_theme();
+            0
+        }
+        _ => win_def_proc(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -791,27 +872,36 @@ unsafe extern "system" fn preview_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // SAFETY: Windows calls this procedure with message-specific pointer payloads.
-    unsafe {
-        if msg == WM_NCCREATE {
-            let createstruct = lparam as *const CREATESTRUCTW;
-            let app = (*createstruct).lpCreateParams as *mut NativeApp;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
-        }
-
-        match msg {
-            WM_PAINT => {
-                let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp;
-                let mut ps: PAINTSTRUCT = zeroed();
-                let hdc = BeginPaint(hwnd, &mut ps);
-                if !app.is_null() {
-                    paint_preview(hwnd, hdc, &*app);
+    // Note : Windows appelle cette procédure avec des pointeurs de messages spécifiques.
+    if msg == WM_NCCREATE {
+        let createstruct = lparam as *const CREATESTRUCTW;
+        if !createstruct.is_null() {
+            // SAFETY: lpCreateParams contains the pointer passed to CreateWindowExW.
+            let app = unsafe { (*createstruct).lpCreateParams.cast::<NativeApp>() };
+            if !app.is_null() {
+                // SAFETY: Store the app pointer in window user data.
+                unsafe {
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
                 }
-                EndPaint(hwnd, &ps);
-                0
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+
+    match msg {
+        WM_PAINT => {
+            // SAFETY: Standard Windows API call or safe dereference.
+            let app = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp };
+            if let Some(ctx) = PaintCtx::begin(hwnd)
+                && !app.is_null()
+            {
+                // SAFETY: Standard Windows API call or safe dereference.
+                let app_ref = unsafe { &*app };
+                paint_preview(hwnd, ctx.hdc(), app_ref);
+            }
+            0
+        }
+        // SAFETY: Standard Windows API call or safe dereference.
+        _ => win_def_proc(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -821,28 +911,37 @@ unsafe extern "system" fn path_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // SAFETY: Windows calls this procedure with message-specific pointer payloads.
-    unsafe {
-        if msg == WM_NCCREATE {
-            let createstruct = lparam as *const CREATESTRUCTW;
-            let app = (*createstruct).lpCreateParams as *mut NativeApp;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
-        }
-
-        match msg {
-            WM_ERASEBKGND => 1,
-            WM_PAINT => {
-                let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp;
-                let mut ps: PAINTSTRUCT = zeroed();
-                let hdc = BeginPaint(hwnd, &mut ps);
-                if !app.is_null() {
-                    paint_path_pill(hwnd, hdc, &*app);
+    // Note : Windows appelle cette procédure avec des pointeurs de messages spécifiques.
+    if msg == WM_NCCREATE {
+        let createstruct = lparam as *const CREATESTRUCTW;
+        if !createstruct.is_null() {
+            // SAFETY: lpCreateParams contains the pointer passed to CreateWindowExW.
+            let app = unsafe { (*createstruct).lpCreateParams.cast::<NativeApp>() };
+            if !app.is_null() {
+                // SAFETY: Store the app pointer in window user data.
+                unsafe {
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
                 }
-                EndPaint(hwnd, &ps);
-                0
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+
+    match msg {
+        WM_ERASEBKGND => 1,
+        WM_PAINT => {
+            // SAFETY: Standard Windows API call or safe dereference.
+            let app = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp };
+            if let Some(ctx) = PaintCtx::begin(hwnd)
+                && !app.is_null()
+            {
+                // SAFETY: Standard Windows API call or safe dereference.
+                let app_ref = unsafe { &*app };
+                paint_path_pill(hwnd, ctx.hdc(), app_ref);
+            }
+            0
+        }
+        // SAFETY: Standard Windows API call or safe dereference.
+        _ => win_def_proc(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -853,7 +952,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         "",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         0,
-        (app as *mut NativeApp).cast(),
+        std::ptr::from_mut(app).cast(),
     )?;
 
     app.image_label_hwnd = create_child(
@@ -871,7 +970,7 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
         "",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
         0,
-        (app as *mut NativeApp).cast(),
+        std::ptr::from_mut(app).cast(),
     )?;
     app.path_tooltip_hwnd = create_path_tooltip(app)?;
 
@@ -903,17 +1002,13 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
     )?;
     for &style in WallpaperStyle::all() {
         let label = wide(app.lang.wallpaper_style(style));
-        unsafe {
-            SendMessageW(app.style_hwnd, CB_ADDSTRING, 0, label.as_ptr() as LPARAM);
-        }
+        win_send_msg(app.style_hwnd, CB_ADDSTRING, 0, label.as_ptr() as LPARAM);
     }
     let selected = WallpaperStyle::all()
         .iter()
         .position(|style| *style == app.style)
         .unwrap_or(0);
-    unsafe {
-        SendMessageW(app.style_hwnd, CB_SETCURSEL, selected, 0);
-    }
+    win_send_msg(app.style_hwnd, CB_SETCURSEL, selected, 0);
 
     app.status_hwnd = create_child(
         app.hwnd,
@@ -950,18 +1045,9 @@ fn create_controls(app: &mut NativeApp) -> anyhow::Result<()> {
 }
 
 fn update_ui_font(app: &mut NativeApp) {
-    let old_font = app.ui_font;
-    let old_owned = app.ui_font_owned;
     let (font, owned) = create_message_font(app.dpi);
-    app.ui_font = font;
-    app.ui_font_owned = owned;
-    apply_control_font(app, font);
-
-    if old_owned && !old_font.is_null() {
-        unsafe {
-            DeleteObject(old_font);
-        }
-    }
+    app.ui_font = OwnedFont::new(font, owned);
+    apply_control_font(app, app.ui_font.get());
 }
 
 fn apply_control_font(app: &NativeApp, font: HFONT) {
@@ -975,14 +1061,15 @@ fn apply_control_font(app: &NativeApp, font: HFONT) {
         app.apply_hwnd,
         app.close_hwnd,
     ] {
-        unsafe {
-            SendMessageW(hwnd, WM_SETFONT, font as WPARAM, 1);
-        }
+        win_send_msg(hwnd, WM_SETFONT, font as WPARAM, 1);
     }
 }
 
 fn create_path_tooltip(app: &mut NativeApp) -> anyhow::Result<HWND> {
     app.path_tooltip_text = wide(app.lang.empty_path());
+    // SAFETY: Standard Windows API call or safe dereference.
+    let hinstance = unsafe { GetModuleHandleW(null()) };
+    // SAFETY: Standard Windows API call or safe dereference.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -995,21 +1082,15 @@ fn create_path_tooltip(app: &mut NativeApp) -> anyhow::Result<HWND> {
             0,
             app.hwnd,
             null_mut(),
-            GetModuleHandleW(null()),
+            hinstance,
             null_mut(),
         )
     };
     anyhow::ensure!(!hwnd.is_null(), "tooltip CreateWindowExW failed");
 
     let mut tool = tooltip_info(app.hwnd, app.path_hwnd, app.path_tooltip_text.as_mut_ptr());
-    unsafe {
-        SendMessageW(
-            hwnd,
-            TTM_ADDTOOLW,
-            0,
-            (&mut tool as *mut TTTOOLINFOW) as LPARAM,
-        );
-    }
+    let tool_ptr = &raw mut tool;
+    win_send_msg(hwnd, TTM_ADDTOOLW, 0, tool_ptr as LPARAM);
 
     Ok(hwnd)
 }
@@ -1034,27 +1115,34 @@ fn tooltip_info(owner: HWND, target: HWND, text: *mut u16) -> TTTOOLINFOW {
 }
 
 fn create_message_font(dpi: u32) -> (HFONT, bool) {
-    let mut metrics: NONCLIENTMETRICSW = unsafe { zeroed() };
-    metrics.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
+    // SAFETY: Standard Windows API call or safe dereference.
+    let mut metrics = NONCLIENTMETRICSW {
+        cbSize: size_of::<NONCLIENTMETRICSW>() as u32,
+        ..unsafe { zeroed() }
+    };
 
     // Match the system message font at the window DPI instead of relying on
     // DEFAULT_GUI_FONT, which is only a fallback for older or failing systems.
+    let metrics_ptr = &raw mut metrics;
+    // SAFETY: Standard Windows API call or safe dereference.
     let ok = unsafe {
         SystemParametersInfoForDpi(
             SPI_GETNONCLIENTMETRICS,
             metrics.cbSize,
-            (&mut metrics as *mut NONCLIENTMETRICSW).cast(),
+            metrics_ptr.cast(),
             0,
             dpi.max(96),
         ) != 0
     };
     if ok {
-        let font = unsafe { CreateFontIndirectW(&metrics.lfMessageFont) };
+        // SAFETY: Standard Windows API call or safe dereference.
+        let font = unsafe { CreateFontIndirectW(&raw const metrics.lfMessageFont) };
         if !font.is_null() {
             return (font, true);
         }
     }
 
+    // SAFETY: Standard Windows API call or safe dereference.
     (unsafe { GetStockObject(DEFAULT_GUI_FONT) } as HFONT, false)
 }
 
@@ -1129,18 +1217,16 @@ fn layout_controls(app: &NativeApp) {
 }
 
 fn paint_window_background(hwnd: HWND, hdc: HDC, app: &NativeApp) {
-    let mut rect: RECT = unsafe { zeroed() };
-    unsafe {
-        GetClientRect(hwnd, &mut rect);
-        FillRect(hdc, &rect, app.window_bg_brush.get());
-    }
+    let Some(rect) = win_get_client_rect(hwnd) else {
+        return;
+    };
+    gdi_fill_rect(hdc, &raw const rect, app.window_bg_brush.get());
 }
 
 fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
-    let mut rect: RECT = unsafe { zeroed() };
-    unsafe {
-        GetClientRect(hwnd, &mut rect);
-    }
+    let Some(rect) = win_get_client_rect(hwnd) else {
+        return;
+    };
     let palette = app.palette();
     let (Some(bg), Some(border), Some(icon_bg)) = (
         OwnedBrush::solid(palette.path_bg),
@@ -1150,11 +1236,9 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         return;
     };
 
-    unsafe {
-        FillRect(hdc, &rect, bg.get());
-        FrameRect(hdc, &rect, border.get());
-        SetBkMode(hdc, TRANSPARENT as i32);
-    }
+    gdi_fill_rect(hdc, &raw const rect, bg.get());
+    gdi_frame_rect(hdc, &raw const rect, border.get());
+    gdi_set_bk_mode(hdc, TRANSPARENT as i32);
 
     let icon_size = app.scale(22);
     let icon = RECT {
@@ -1163,14 +1247,10 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         right: rect.left + app.scale(6) + icon_size,
         bottom: rect.top + ((rect.bottom - rect.top - icon_size) / 2) + icon_size,
     };
-    unsafe {
-        FillRect(hdc, &icon, icon_bg.get());
-    }
+    gdi_fill_rect(hdc, &raw const icon, icon_bg.get());
     paint_image_glyph(hdc, icon, palette.path_icon_text);
-    let previous_font = unsafe { SelectObject(hdc, app.ui_font) };
-    unsafe {
-        SetTextColor(hdc, palette.path_text);
-    }
+    let previous_font = gdi_select_object(hdc, app.ui_font.get());
+    gdi_set_text_color(hdc, palette.path_text);
 
     let mut text_rect = RECT {
         left: icon.right + app.scale(8),
@@ -1180,20 +1260,17 @@ fn paint_path_pill(hwnd: HWND, hdc: HDC, app: &NativeApp) {
     };
     let display = app.path_display_name();
     let text = wide(&display);
-    unsafe {
-        DrawTextW(
-            hdc,
-            text.as_ptr(),
-            -1,
-            &mut text_rect,
-            windows_sys::Win32::Graphics::Gdi::DT_LEFT
-                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
-                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE
-                | windows_sys::Win32::Graphics::Gdi::DT_END_ELLIPSIS,
-        );
-        if !previous_font.is_null() {
-            SelectObject(hdc, previous_font);
-        }
+    gdi_draw_text(
+        hdc,
+        &text,
+        &raw mut text_rect,
+        windows_sys::Win32::Graphics::Gdi::DT_LEFT
+            | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+            | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE
+            | windows_sys::Win32::Graphics::Gdi::DT_END_ELLIPSIS,
+    );
+    if !previous_font.is_null() {
+        gdi_select_object(hdc, previous_font);
     }
 }
 
@@ -1207,9 +1284,7 @@ fn paint_image_glyph(hdc: HDC, rect: RECT, color: u32) {
         right: rect.right - 3,
         bottom: rect.bottom - 3,
     };
-    unsafe {
-        FrameRect(hdc, &frame, brush.get());
-    }
+    gdi_frame_rect(hdc, &raw const frame, brush.get());
 
     let sun = RECT {
         left: frame.right - 5,
@@ -1229,25 +1304,21 @@ fn paint_image_glyph(hdc: HDC, rect: RECT, color: u32) {
         right: frame.right - 5,
         bottom: frame.bottom - 6,
     };
-    unsafe {
-        FillRect(hdc, &sun, brush.get());
-        FillRect(hdc, &ridge, brush.get());
-        FillRect(hdc, &mountain, brush.get());
-    }
+    gdi_fill_rect(hdc, &raw const sun, brush.get());
+    gdi_fill_rect(hdc, &raw const ridge, brush.get());
+    gdi_fill_rect(hdc, &raw const mountain, brush.get());
 }
 
 fn style_text_control(hdc: HDC, control: HWND, app: &NativeApp) -> LRESULT {
     let palette = app.palette();
-    unsafe {
-        SetBkMode(hdc, TRANSPARENT as i32);
-        SetBkColor(hdc, palette.window_bg);
-        let text_color = if control == app.status_hwnd {
-            palette.status_text
-        } else {
-            palette.label_text
-        };
-        SetTextColor(hdc, text_color);
-    }
+    gdi_set_bk_mode(hdc, TRANSPARENT as i32);
+    gdi_set_bk_color(hdc, palette.window_bg);
+    let text_color = if control == app.status_hwnd {
+        palette.status_text
+    } else {
+        palette.label_text
+    };
+    gdi_set_text_color(hdc, text_color);
 
     app.window_bg_brush.get() as LRESULT
 }
@@ -1257,6 +1328,7 @@ fn draw_button(item: *const DRAWITEMSTRUCT, app: &NativeApp) -> LRESULT {
         return 0;
     }
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let item = unsafe { &*item };
     let palette = app.palette();
     let is_accent = item.CtlID as isize == ID_APPLY;
@@ -1294,12 +1366,10 @@ fn draw_button(item: *const DRAWITEMSTRUCT, app: &NativeApp) -> LRESULT {
     };
 
     let mut rect = item.rcItem;
-    unsafe {
-        FillRect(item.hDC, &rect, bg_brush.get());
-        FrameRect(item.hDC, &rect, border_brush.get());
-        SetBkMode(item.hDC, TRANSPARENT as i32);
-        SetTextColor(item.hDC, text);
-    }
+    gdi_fill_rect(item.hDC, &raw const rect, bg_brush.get());
+    gdi_frame_rect(item.hDC, &raw const rect, border_brush.get());
+    gdi_set_bk_mode(item.hDC, TRANSPARENT as i32);
+    gdi_set_text_color(item.hDC, text);
 
     rect.left += 10;
     rect.right -= 10;
@@ -1310,51 +1380,56 @@ fn draw_button(item: *const DRAWITEMSTRUCT, app: &NativeApp) -> LRESULT {
 
     let label = button_text(item.hwndItem);
     let label = wide(&label);
-    let previous_font = unsafe { SelectObject(item.hDC, app.ui_font) };
-    unsafe {
-        DrawTextW(
-            item.hDC,
-            label.as_ptr(),
-            -1,
-            &mut rect,
-            windows_sys::Win32::Graphics::Gdi::DT_CENTER
-                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
-                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
-        );
-        if !previous_font.is_null() {
-            SelectObject(item.hDC, previous_font);
-        }
+    let previous_font = gdi_select_object(item.hDC, app.ui_font.get());
+    gdi_draw_text(
+        item.hDC,
+        &label,
+        &raw mut rect,
+        windows_sys::Win32::Graphics::Gdi::DT_CENTER
+            | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+            | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
+    );
+    if !previous_font.is_null() {
+        gdi_select_object(item.hDC, previous_font);
     }
 
     1
 }
 
 fn button_text(hwnd: HWND) -> String {
+    // SAFETY: Standard Windows API call or safe dereference.
     let len = unsafe { GetWindowTextLengthW(hwnd) };
     if len <= 0 {
         return String::new();
     }
 
     let mut buffer = vec![0u16; len as usize + 1];
+    // SAFETY: Standard Windows API call or safe dereference.
     let copied = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
     String::from_utf16_lossy(&buffer[..copied.max(0) as usize])
 }
 
 fn enable_modern_window_chrome(hwnd: HWND, theme: UiTheme) {
-    let dark_mode: i32 = (theme == UiTheme::Dark) as i32;
-    let corner_preference: i32 = DWMWCP_ROUND as i32;
+    let dark_mode = i32::from(theme == UiTheme::Dark);
+    let corner_preference = DWMWCP_ROUND;
+    let dark_mode_ptr = &raw const dark_mode;
+    let corner_preference_ptr = &raw const corner_preference;
 
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_USE_IMMERSIVE_DARK_MODE,
-            (&dark_mode as *const i32).cast(),
+            dark_mode_ptr.cast(),
             size_of::<i32>() as u32,
         );
+    }
+    // SAFETY: Standard Windows API call or safe dereference.
+    unsafe {
         let _ = DwmSetWindowAttribute(
             hwnd,
             DWMWA_WINDOW_CORNER_PREFERENCE,
-            (&corner_preference as *const i32).cast(),
+            corner_preference_ptr.cast(),
             size_of::<i32>() as u32,
         );
     }
@@ -1390,9 +1465,9 @@ fn action_row_layout(client_w: i32) -> ActionRowLayout {
 }
 
 fn logical_client_width(app: &NativeApp, dpi: u32) -> i32 {
-    let mut rect: RECT = unsafe { zeroed() };
-    let has_client = unsafe { !app.hwnd.is_null() && GetClientRect(app.hwnd, &mut rect) != 0 };
-    if has_client && rect.right > rect.left {
+    if let Some(rect) = win_get_client_rect(app.hwnd)
+        && rect.right > rect.left
+    {
         return unscale(rect.right - rect.left, dpi).max(1);
     }
 
@@ -1400,6 +1475,7 @@ fn logical_client_width(app: &NativeApp, dpi: u32) -> i32 {
 }
 
 fn move_window(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
         SetWindowPos(hwnd, null_mut(), x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
     }
@@ -1414,8 +1490,12 @@ fn resize_window_for_dpi(hwnd: HWND, dpi: u32) {
         right: scale(WINDOW_W, dpi),
         bottom: scale(WINDOW_H, dpi),
     };
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
-        AdjustWindowRectEx(&mut rect, style_flags, 0, ex_style);
+        AdjustWindowRectEx(&raw mut rect, style_flags, 0, ex_style);
+    }
+    // SAFETY: Standard Windows API call or safe dereference.
+    unsafe {
         SetWindowPos(
             hwnd,
             null_mut(),
@@ -1429,10 +1509,9 @@ fn resize_window_for_dpi(hwnd: HWND, dpi: u32) {
 }
 
 fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
-    let mut rect: RECT = unsafe { zeroed() };
-    unsafe {
-        windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect);
-    }
+    let Some(rect) = win_get_client_rect(hwnd) else {
+        return;
+    };
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
     let palette = app.palette();
@@ -1446,20 +1525,16 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
         return;
     };
 
-    unsafe {
-        FillRect(hdc, &rect, bezel.get());
-        FrameRect(hdc, &rect, edge.get());
-    }
+    gdi_fill_rect(hdc, &raw const rect, bezel.get());
+    gdi_frame_rect(hdc, &raw const rect, edge.get());
     let screen = RECT {
         left: app.scale(8),
         top: app.scale(10),
         right: width - app.scale(8),
         bottom: height - app.scale(10),
     };
-    unsafe {
-        FillRect(hdc, &screen, black.get());
-        FrameRect(hdc, &screen, highlight.get());
-    }
+    gdi_fill_rect(hdc, &raw const screen, black.get());
+    gdi_frame_rect(hdc, &raw const screen, highlight.get());
 
     if let Some(preview) = &app.preview {
         let info = BITMAPINFO {
@@ -1483,52 +1558,43 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
                 rgbReserved: 0,
             }],
         };
-        unsafe {
-            StretchDIBits(
-                hdc,
-                screen.left,
-                screen.top,
-                screen.right - screen.left,
-                screen.bottom - screen.top,
-                0,
-                0,
-                preview.width,
-                preview.height,
-                preview.bgra.as_ptr().cast(),
-                &info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            );
-        }
+        gdi_stretch_dibits(
+            hdc,
+            screen.left,
+            screen.top,
+            screen.right - screen.left,
+            screen.bottom - screen.top,
+            0,
+            0,
+            preview.width,
+            preview.height,
+            &preview.bgra,
+            &info,
+        );
     } else {
-        unsafe {
-            FillRect(hdc, &screen, face.get());
-            fill_checkerboard(
-                hdc,
-                screen,
-                palette.preview_empty_bg,
-                palette.preview_empty_grid,
-                app.scale(16).max(4),
-            );
-            SetBkMode(hdc, TRANSPARENT as i32);
-            SetTextColor(hdc, palette.preview_empty_text);
-        }
+        gdi_fill_rect(hdc, &raw const screen, face.get());
+        fill_checkerboard(
+            hdc,
+            screen,
+            palette.preview_empty_bg,
+            palette.preview_empty_grid,
+            app.scale(16).max(4),
+        );
+        gdi_set_bk_mode(hdc, TRANSPARENT as i32);
+        gdi_set_text_color(hdc, palette.preview_empty_text);
         let mut text_rect = screen;
         let text = wide(app.lang.empty_preview_title());
-        let previous_font = unsafe { SelectObject(hdc, app.ui_font) };
-        unsafe {
-            DrawTextW(
-                hdc,
-                text.as_ptr(),
-                -1,
-                &mut text_rect,
-                windows_sys::Win32::Graphics::Gdi::DT_CENTER
-                    | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
-                    | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
-            );
-            if !previous_font.is_null() {
-                SelectObject(hdc, previous_font);
-            }
+        let previous_font = gdi_select_object(hdc, app.ui_font.get());
+        gdi_draw_text(
+            hdc,
+            &text,
+            &raw mut text_rect,
+            windows_sys::Win32::Graphics::Gdi::DT_CENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_VCENTER
+                | windows_sys::Win32::Graphics::Gdi::DT_SINGLELINE,
+        );
+        if !previous_font.is_null() {
+            gdi_select_object(hdc, previous_font);
         }
     }
 }
@@ -1536,7 +1602,7 @@ fn paint_preview(hwnd: HWND, hdc: HDC, app: &NativeApp) {
 fn apply_wallpaper(path: &Path, style: WallpaperStyle, lang: Language) -> Result<(), String> {
     // Prefer the non-elevated HKCU write. If policy permissions block it, use the
     // elevated broker path that writes the same values under HKEY_USERS\<SID>.
-    if let Ok(()) = registry::set_wallpaper_for_current_user(path, style) {
+    if registry::set_wallpaper_for_current_user(path, style).is_ok() {
         let _ = registry::refresh_wallpaper_session(path);
         return Ok(());
     }
@@ -1577,9 +1643,7 @@ fn fill_checkerboard(hdc: HDC, rect: RECT, base: u32, alternate: u32, size: i32)
         return;
     };
 
-    unsafe {
-        FillRect(hdc, &rect, base_brush.get());
-    }
+    gdi_fill_rect(hdc, &raw const rect, base_brush.get());
 
     let size = size.max(1);
     let mut y = rect.top;
@@ -1595,9 +1659,7 @@ fn fill_checkerboard(hdc: HDC, rect: RECT, base: u32, alternate: u32, size: i32)
                     right: (x + size).min(rect.right),
                     bottom: (y + size).min(rect.bottom),
                 };
-                unsafe {
-                    FillRect(hdc, &tile, alternate_brush.get());
-                }
+                gdi_fill_rect(hdc, &raw const tile, alternate_brush.get());
             }
             x += size;
             col += 1;
@@ -1623,6 +1685,32 @@ fn build_preview_bitmap(path: &Path, style: WallpaperStyle) -> anyhow::Result<Pr
     })
 }
 
+struct CoTaskMemPtr(windows::core::PWSTR);
+
+impl Drop for CoTaskMemPtr {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: Safe memory deallocation of COM-allocated PWSTR using CoTaskMemFree.
+            unsafe {
+                CoTaskMemFree(Some(self.0.as_ptr().cast()));
+            }
+        }
+    }
+}
+
+struct OwnedHDROP(HDROP);
+
+impl Drop for OwnedHDROP {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: Standard Windows API call to release memory allocated for shell file drop.
+            unsafe {
+                DragFinish(self.0);
+            }
+        }
+    }
+}
+
 fn open_image_dialog(owner: HWND, lang: Language) -> Option<PathBuf> {
     open_image_dialog_modern(owner, lang).ok().flatten()
 }
@@ -1630,9 +1718,11 @@ fn open_image_dialog(owner: HWND, lang: Language) -> Option<PathBuf> {
 fn open_image_dialog_modern(owner: HWND, lang: Language) -> windows::core::Result<Option<PathBuf>> {
     let _com = ComApartment::init();
     let dialog: IFileOpenDialog =
+        // SAFETY: Standard Windows API call or safe dereference.
         unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)? };
 
     let options = FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST;
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
         dialog.SetOptions(options)?;
     }
@@ -1651,38 +1741,47 @@ fn open_image_dialog_modern(owner: HWND, lang: Language) -> windows::core::Resul
             pszSpec: all_spec,
         },
     ];
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
         dialog.SetFileTypes(&filters)?;
+    }
+    // SAFETY: Standard Windows API call or safe dereference.
+    unsafe {
         dialog.SetFileTypeIndex(1)?;
     }
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let result = unsafe { dialog.Show(Some(WindowsHwnd(owner))) };
     if result.is_err() {
         return Ok(None);
     }
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let item = unsafe { dialog.GetResult()? };
+    // SAFETY: Standard Windows API call or safe dereference.
     let path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH)? };
-    let path_string = unsafe { path.to_string()? };
-    unsafe {
-        CoTaskMemFree(Some(path.as_ptr().cast()));
-    }
+    let path_ptr = CoTaskMemPtr(path);
+    // SAFETY: Standard Windows API call or safe dereference.
+    let path_string = unsafe { path_ptr.0.to_string()? };
 
     Ok(Some(PathBuf::from(path_string)))
 }
 
 fn first_dropped_file(drop: HDROP) -> Option<PathBuf> {
+    // SAFETY: Standard Windows API call or safe dereference.
     let count = unsafe { DragQueryFileW(drop, DRAG_QUERY_FILE_COUNT, null_mut(), 0) };
     if count == 0 {
         return None;
     }
 
+    // SAFETY: Standard Windows API call or safe dereference.
     let len = unsafe { DragQueryFileW(drop, 0, null_mut(), 0) };
     if len == 0 {
         return None;
     }
 
     let mut buffer = vec![0u16; len as usize + 1];
+    // SAFETY: Standard Windows API call or safe dereference.
     let copied = unsafe { DragQueryFileW(drop, 0, buffer.as_mut_ptr(), buffer.len() as u32) };
     if copied == 0 {
         return None;
@@ -1698,13 +1797,12 @@ fn is_supported_image_path(path: &Path) -> bool {
         && path
             .extension()
             .and_then(OsStr::to_str)
-            .map(|extension| {
+            .is_some_and(|extension| {
                 matches!(
                     extension.to_ascii_lowercase().as_str(),
                     "jpg" | "jpeg" | "png" | "bmp"
                 )
             })
-            .unwrap_or(false)
 }
 
 fn load_preview_work_image(path: &Path) -> anyhow::Result<DynamicImage> {
@@ -1751,16 +1849,16 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
         WallpaperStyle::Center => {
             let rgba = img.to_rgba8();
             let (iw, ih) = rgba.dimensions();
-            let x = (width as i64 - iw as i64) / 2;
-            let y = (height as i64 - ih as i64) / 2;
+            let x = (i64::from(width) - i64::from(iw)) / 2;
+            let y = (i64::from(height) - i64::from(ih)) / 2;
             image::imageops::overlay(&mut canvas, &rgba, x, y);
         }
         WallpaperStyle::Fit => {
             let resized = img.resize(width, height, FilterType::Triangle);
             let rgba = resized.to_rgba8();
             let (rw, rh) = rgba.dimensions();
-            let x = (width as i64 - rw as i64) / 2;
-            let y = (height as i64 - rh as i64) / 2;
+            let x = (i64::from(width) - i64::from(rw)) / 2;
+            let y = (i64::from(height) - i64::from(rh)) / 2;
             image::imageops::overlay(&mut canvas, &rgba, x, y);
         }
         WallpaperStyle::Fill => {
@@ -1772,13 +1870,13 @@ fn render_preview(img: &DynamicImage, style: WallpaperStyle, width: u32, height:
             let (iw, ih) = rgba.dimensions();
             if iw > 0 && ih > 0 {
                 let mut ty: i64 = 0;
-                while ty < height as i64 {
+                while ty < i64::from(height) {
                     let mut tx: i64 = 0;
-                    while tx < width as i64 {
+                    while tx < i64::from(width) {
                         image::imageops::overlay(&mut canvas, &rgba, tx, ty);
-                        tx += iw as i64;
+                        tx += i64::from(iw);
                     }
-                    ty += ih as i64;
+                    ty += i64::from(ih);
                 }
             }
         }
@@ -1809,6 +1907,9 @@ fn create_child_ex(
 ) -> anyhow::Result<HWND> {
     let class = wide(class);
     let text = wide(text);
+    // SAFETY: Standard Windows API call or safe dereference.
+    let hinstance = unsafe { GetModuleHandleW(null()) };
+    // SAFETY: Standard Windows API call or safe dereference.
     let hwnd = unsafe {
         CreateWindowExW(
             ex_style,
@@ -1821,7 +1922,7 @@ fn create_child_ex(
             1,
             parent,
             id as HMENU,
-            GetModuleHandleW(null()),
+            hinstance,
             param,
         )
     };
@@ -1846,13 +1947,15 @@ fn register_class(
         cbWndExtra: 0,
         hInstance: hinstance,
         hIcon: app_icon(hinstance),
+        // SAFETY: Standard Windows API call or safe dereference.
         hCursor: unsafe { LoadCursorW(null_mut(), IDC_ARROW) },
         hbrBackground: background,
         lpszMenuName: null(),
         lpszClassName: class_name.as_ptr(),
     };
-    let atom = unsafe { RegisterClassW(&wc) };
+    let atom = win_register_class(&wc);
     if atom == 0 {
+        // SAFETY: Standard Windows API call or safe dereference.
         let error = unsafe { GetLastError() };
         anyhow::ensure!(
             error == ERROR_CLASS_ALREADY_EXISTS,
@@ -1868,22 +1971,22 @@ fn set_window_icon(hwnd: HWND, hinstance: HINSTANCE) {
         return;
     }
 
-    unsafe {
-        SendMessageW(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon as LPARAM);
-        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as WPARAM, icon as LPARAM);
-    }
+    win_send_msg(hwnd, WM_SETICON, ICON_BIG as WPARAM, icon as LPARAM);
+    win_send_msg(hwnd, WM_SETICON, ICON_SMALL as WPARAM, icon as LPARAM);
 }
 
 fn app_icon(hinstance: HINSTANCE) -> HICON {
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe { LoadIconW(hinstance, int_resource(IDI_APP_ICON)) }
 }
 
-fn int_resource(id: u16) -> *const u16 {
+const fn int_resource(id: u16) -> *const u16 {
     id as usize as *const u16
 }
 
 fn set_window_text(hwnd: HWND, text: &str) {
     let text = wide(text);
+    // SAFETY: Standard Windows API call or safe dereference.
     unsafe {
         SetWindowTextW(hwnd, text.as_ptr());
     }
@@ -1896,20 +1999,21 @@ fn wide(text: &str) -> Vec<u16> {
         .collect()
 }
 
-fn loword(value: usize) -> u16 {
+const fn loword(value: usize) -> u16 {
     (value & 0xffff) as u16
 }
 
-fn hiword(value: usize) -> u16 {
+const fn hiword(value: usize) -> u16 {
     ((value >> 16) & 0xffff) as u16
 }
 
-fn scale(value: i32, dpi: u32) -> i32 {
+const fn scale(value: i32, dpi: u32) -> i32 {
     ((value as i64 * dpi as i64 + 48) / 96) as i32
 }
 
 fn unscale(value: i32, dpi: u32) -> i32 {
-    ((value as i64 * 96 + dpi.max(1) as i64 / 2) / dpi.max(1) as i64) as i32
+    let d = i64::from(dpi.max(1));
+    ((i64::from(value) * 96 + d / 2) / d) as i32
 }
 
 fn layout_dpi_for_client(client_w: i32, client_h: i32, window_dpi: u32) -> u32 {
@@ -1917,8 +2021,10 @@ fn layout_dpi_for_client(client_w: i32, client_h: i32, window_dpi: u32) -> u32 {
         return window_dpi.max(96);
     }
 
-    let width_dpi = ((client_w as i64 * 96 + WINDOW_W as i64 / 2) / WINDOW_W as i64) as u32;
-    let height_dpi = ((client_h as i64 * 96 + WINDOW_H as i64 / 2) / WINDOW_H as i64) as u32;
+    let w_max = i64::from(WINDOW_W);
+    let h_max = i64::from(WINDOW_H);
+    let width_dpi = ((i64::from(client_w) * 96 + w_max / 2) / w_max) as u32;
+    let height_dpi = ((i64::from(client_h) * 96 + h_max / 2) / h_max) as u32;
     let client_dpi = width_dpi.min(height_dpi).max(1);
 
     client_dpi.min(window_dpi.max(96)).max(72)
@@ -1929,7 +2035,241 @@ const fn rgb(r: u8, g: u8, b: u8) -> u32 {
 }
 
 fn last_error() -> String {
+    // SAFETY: Standard Windows API call or safe dereference.
     format!("GetLastError={}", unsafe { GetLastError() })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Safe wrappers around Win32 API calls.  Each wrapper encapsulates exactly
+// one unsafe call whose safety precondition is documented in a SAFETY note
+// inside the function.  Callers write ordinary safe Rust.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── GDI drawing wrappers ─────────────────────────────────────────────────
+
+fn gdi_fill_rect(hdc: HDC, rect: *const RECT, brush: HBRUSH) {
+    // SAFETY: FillRect fills a rectangle on the given device context using
+    // the specified brush.  Callers guarantee `hdc` is a valid DC handle,
+    // `brush` is a non-deleted brush, and `rect` points to a valid RECT.
+    unsafe {
+        FillRect(hdc, rect, brush);
+    }
+}
+
+fn gdi_frame_rect(hdc: HDC, rect: *const RECT, brush: HBRUSH) {
+    // SAFETY: FrameRect draws a one-pixel border.  Same preconditions as
+    // FillRect: valid DC, valid brush, valid rect pointer.
+    unsafe {
+        FrameRect(hdc, rect, brush);
+    }
+}
+
+fn gdi_set_bk_mode(hdc: HDC, mode: i32) {
+    // SAFETY: SetBkMode configures how the device context blends background
+    // pixels during text and hatched-brush drawing.
+    unsafe {
+        SetBkMode(hdc, mode);
+    }
+}
+
+fn gdi_set_bk_color(hdc: HDC, color: u32) {
+    // SAFETY: SetBkColor sets the background colour for the device context.
+    // The `color` value is a COLORREF (0x00BBGGRR).
+    unsafe {
+        SetBkColor(hdc, color);
+    }
+}
+
+fn gdi_set_text_color(hdc: HDC, color: u32) {
+    // SAFETY: SetTextColor sets the foreground text colour for the DC.
+    // The `color` value is a COLORREF (0x00BBGGRR).
+    unsafe {
+        SetTextColor(hdc, color);
+    }
+}
+
+fn gdi_draw_text(hdc: HDC, text: &[u16], rect: *mut RECT, format: u32) -> i32 {
+    // SAFETY: DrawTextW renders null-terminated text inside the given
+    // rectangle.  The text slice and rect pointer must remain valid for
+    // the duration of the call.  `rect` may be mutated in-place (e.g.
+    // DT_CALCRECT) depending on the format flags.
+    unsafe { DrawTextW(hdc, text.as_ptr(), -1, rect, format) }
+}
+
+fn gdi_select_object(hdc: HDC, obj: HGDIOBJ) -> HGDIOBJ {
+    // SAFETY: SelectObject replaces the current GDI object of a given type
+    // in the device context.  The returned previous object must be restored
+    // to the DC before the DC is released or used for incompatible
+    // operations.
+    unsafe { SelectObject(hdc, obj) }
+}
+
+fn gdi_stretch_dibits(
+    hdc: HDC,
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: i32,
+    dst_h: i32,
+    src_x: i32,
+    src_y: i32,
+    src_w: i32,
+    src_h: i32,
+    bits: &[u8],
+    info: &BITMAPINFO,
+) -> i32 {
+    // SAFETY: StretchDIBits copies a device-independent bitmap to the DC
+    // with scaling.  `bits` is a valid BGRA pixel buffer whose dimensions
+    // match the BITMAPINFO header.  `info` describes the pixel format.
+    unsafe {
+        StretchDIBits(
+            hdc,
+            dst_x,
+            dst_y,
+            dst_w,
+            dst_h,
+            src_x,
+            src_y,
+            src_w,
+            src_h,
+            bits.as_ptr().cast(),
+            info,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        )
+    }
+}
+
+// ── Window-management wrappers ───────────────────────────────────────────
+
+fn win_get_client_rect(hwnd: HWND) -> Option<RECT> {
+    // SAFETY: zeroed is sound for RECT (a POD C struct with no invariants).
+    let mut rect: RECT = unsafe { zeroed() };
+    // SAFETY: GetClientRect is a standard function that reads the client-
+    // area dimensions into the caller-supplied RECT.  It is safe to call
+    // even on a null HWND (returns 0 / false in that case).
+    (unsafe { GetClientRect(hwnd, &raw mut rect) } != 0).then_some(rect)
+}
+
+fn win_invalidate(hwnd: HWND) {
+    // SAFETY: InvalidateRect with a NULL rectangle tells Windows to redraw
+    // the entire client area.  The third parameter (1) requests background
+    // erasure as well.
+    unsafe {
+        InvalidateRect(hwnd, null(), 1);
+    }
+}
+
+fn win_enable(hwnd: HWND, enable: bool) {
+    // SAFETY: EnableWindow enables or disables mouse and keyboard input
+    // for the specified window.  Passing a valid HWND is safe even if the
+    // window was already in that state.
+    unsafe {
+        EnableWindow(hwnd, i32::from(enable));
+    }
+}
+
+fn win_dpi(hwnd: HWND) -> u32 {
+    // SAFETY: GetDpiForWindow returns the dots-per-inch value for the
+    // monitor that the window primarily occupies.  96 is the floor.
+    unsafe { GetDpiForWindow(hwnd) }.max(96)
+}
+
+fn win_destroy(hwnd: HWND) {
+    // SAFETY: DestroyWindow posts WM_DESTROY / WM_NCDESTROY and frees the
+    // associated window resources.  The HWND must not be used afterward.
+    unsafe {
+        DestroyWindow(hwnd);
+    }
+}
+
+fn win_post_msg(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) {
+    // SAFETY: PostMessageW places a message in the calling thread's message
+    // queue and returns immediately.  The message is processed later by the
+    // thread's GetMessage / DispatchMessage loop.
+    unsafe {
+        let _ = PostMessageW(hwnd, msg, wparam, lparam);
+    }
+}
+
+fn win_send_msg(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // SAFETY: SendMessageW delivers a message synchronously to the target
+    // window procedure and blocks until that procedure returns.
+    unsafe { SendMessageW(hwnd, msg, wparam, lparam) }
+}
+
+fn win_show(hwnd: HWND) {
+    // SAFETY: ShowWindow with SW_SHOW activates and displays the window
+    // according to the thread's activation rules.
+    unsafe {
+        ShowWindow(hwnd, SW_SHOW);
+    }
+}
+
+fn win_update(hwnd: HWND) {
+    // SAFETY: UpdateWindow sends a WM_PAINT directly to the window if its
+    // update region is non-empty, bypassing the application queue.
+    unsafe {
+        UpdateWindow(hwnd);
+    }
+}
+
+fn win_def_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // SAFETY: DefWindowProcW provides default handling for any window
+    // message that the application does not process itself.
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+fn win_post_quit(exit_code: i32) {
+    // SAFETY: PostQuitMessage posts WM_QUIT, which causes the GetMessage
+    // loop in `run()` to exit cleanly.
+    unsafe {
+        PostQuitMessage(exit_code);
+    }
+}
+
+fn win_register_class(wc: &WNDCLASSW) -> u16 {
+    // SAFETY: RegisterClassW registers a window class for subsequent
+    // CreateWindowExW calls.  Returns the class atom, or 0 on failure.
+    unsafe { RegisterClassW(wc) }
+}
+
+// ── Paint context (RAII guard for BeginPaint / EndPaint) ────────────────
+
+struct PaintCtx {
+    hwnd: HWND,
+    hdc: HDC,
+    ps: PAINTSTRUCT,
+}
+
+impl PaintCtx {
+    fn begin(hwnd: HWND) -> Option<Self> {
+        // SAFETY: zeroed is sound for PAINTSTRUCT (a POD C struct).
+        let mut ps: PAINTSTRUCT = unsafe { zeroed() };
+        // SAFETY: BeginPaint validates the update region and prepares the
+        // DC for painting.  The returned HDC must be released with EndPaint
+        // using the same PAINTSTRUCT — enforced by Drop.
+        let hdc = unsafe { BeginPaint(hwnd, &raw mut ps) };
+        if hdc.is_null() {
+            None
+        } else {
+            Some(Self { hwnd, hdc, ps })
+        }
+    }
+
+    const fn hdc(&self) -> HDC {
+        self.hdc
+    }
+}
+
+impl Drop for PaintCtx {
+    fn drop(&mut self) {
+        // SAFETY: EndPaint releases the device context obtained by the
+        // matching BeginPaint call.  The PAINTSTRUCT is the same struct
+        // filled by BeginPaint and is still alive while Drop executes.
+        unsafe {
+            EndPaint(self.hwnd, &raw const self.ps);
+        }
+    }
 }
 
 #[cfg(test)]
