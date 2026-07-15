@@ -1,0 +1,7 @@
+[build]
+# Baseline sûre pour diffusion large
+rustflags = ["-C", "target-cpu=x86-64"]
+
+# Windows MSVC : réductions de taille efficaces
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/OPT:REF", "-C", "link-arg=/OPT:ICF"]
