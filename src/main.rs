@@ -39,11 +39,30 @@ struct Cli {
     style: Option<String>,
 }
 
+#[cfg(windows)]
+fn attach_parent_console() {
+    // SAFETY: AttachConsole attaches the calling process to the console of its parent process.
+    // If it fails (e.g. no parent console, already attached), the return value is ignored.
+    unsafe {
+        let _ = windows_sys::Win32::System::Console::AttachConsole(
+            windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
+
 fn main() -> anyhow::Result<()> {
+    if std::env::args_os().len() > 1 {
+        attach_parent_console();
+    }
+
     let cli = Cli::parse();
 
     // ── Broker / headless mode ────────────────────────────────────────────
     if let Some(sid) = cli.target_sid {
+        attach_parent_console();
         registry::validate_target_sid(&sid)?;
         let wallpaper_path = cli
             .wallpaper
@@ -53,18 +72,23 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("--style is required in broker mode"))?;
         let style: WallpaperStyle = style_str.parse()?;
 
+        anyhow::ensure!(
+            wallpaper_path.is_absolute(),
+            "Wallpaper path must be absolute: {}",
+            wallpaper_path.display()
+        );
+        anyhow::ensure!(
+            wallpaper_path.is_file(),
+            "Wallpaper file not found: {}",
+            wallpaper_path.display()
+        );
+
         // Broker mode writes to HKEY_USERS which requires admin privileges.
         // If we are not already elevated, re-launch ourselves with UAC and exit.
         if !elevation::is_elevated() {
             elevation::relaunch_elevated()?;
             return Ok(());
         }
-
-        anyhow::ensure!(
-            wallpaper_path.is_file(),
-            "Wallpaper file not found: {}",
-            wallpaper_path.display()
-        );
 
         registry::set_wallpaper_for_sid(&sid, &wallpaper_path, style)?;
         // Session refresh is intentionally omitted: we cannot call

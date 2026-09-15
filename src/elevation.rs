@@ -8,15 +8,15 @@ use anyhow::Result;
 use std::ffi::{OsStr, OsString};
 
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 
 #[cfg(windows)]
 struct OwnedHandle(HANDLE);
 
 #[cfg(windows)]
 impl OwnedHandle {
-    const fn new(handle: HANDLE) -> Option<Self> {
-        if handle.is_null() {
+    fn new(handle: HANDLE) -> Option<Self> {
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
             None
         } else {
             Some(Self(handle))

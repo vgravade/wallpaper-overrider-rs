@@ -61,8 +61,8 @@ use windows_sys::Win32::{
             SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetWindowLongPtrW,
             SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_APP,
             WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
-            WM_DRAWITEM, WM_DROPFILES, WM_ERASEBKGND, WM_NCCREATE, WM_PAINT, WM_SETFONT,
-            WM_SETICON, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
+            WM_DRAWITEM, WM_DROPFILES, WM_ERASEBKGND, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
+            WM_SETFONT, WM_SETICON, WM_SETTINGCHANGE, WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD,
             WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
             WS_TABSTOP, WS_VISIBLE,
         },
@@ -76,7 +76,7 @@ const PREVIEW_W: u32 = 316;
 const PREVIEW_H: u32 = 198;
 const PREVIEW_WORK_SCALE: u32 = 2;
 const PREVIEW_MAX_DECODE_DIMENSION: u32 = 32_768;
-const PREVIEW_MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+const PREVIEW_MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
 
 const WINDOW_W: i32 = 560;
 const WINDOW_H: i32 = 572;
@@ -350,6 +350,7 @@ struct NativeApp {
     applied_wallpaper_path: Option<PathBuf>,
     applied_style: WallpaperStyle,
     preview: Option<PreviewBitmap>,
+    preview_work_image: Option<DynamicImage>,
     apply_in_progress: bool,
     apply_tx: Sender<ApplyResult>,
     apply_rx: Receiver<ApplyResult>,
@@ -388,9 +389,12 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     let (wallpaper_str, style) = registry::get_current_wallpaper();
     let wallpaper_path = wallpaper_str.map(PathBuf::from).filter(|p| p.is_file());
     let style = style.unwrap_or_default();
-    let preview = wallpaper_path
+    let preview_work_image = wallpaper_path
         .as_deref()
-        .and_then(|path| build_preview_bitmap(path, style).ok());
+        .and_then(|path| load_preview_work_image(path).ok());
+    let preview = preview_work_image
+        .as_ref()
+        .map(|work| render_preview_bitmap(work, style));
 
     // SAFETY: Standard Windows API call or safe dereference.
     let initial_dpi = unsafe { GetDpiForSystem().max(96) };
@@ -398,7 +402,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     let theme = UiTheme::detect();
     let window_bg_brush = OwnedBrush::solid(theme.palette().window_bg)
         .ok_or_else(|| anyhow::anyhow!("CreateSolidBrush failed"))?;
-    let app = Box::new(NativeApp {
+    let mut app = Box::new(NativeApp {
         lang,
         theme,
         dpi: initial_dpi,
@@ -420,6 +424,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         applied_wallpaper_path: wallpaper_path,
         applied_style: style,
         preview,
+        preview_work_image,
         apply_in_progress: false,
         apply_tx,
         apply_rx,
@@ -446,8 +451,7 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
     let y = (unsafe { GetSystemMetrics(SM_CYSCREEN) } - window_h) / 2;
 
     let title = wide(lang.app_title());
-    // The boxed state is handed to Win32 and reclaimed on WM_DESTROY.
-    let app_ptr = Box::into_raw(app);
+    let app_ptr: *mut NativeApp = &raw mut *app;
     // SAFETY: Standard Windows API call or safe dereference.
     let hwnd = unsafe {
         CreateWindowExW(
@@ -466,10 +470,6 @@ pub fn run(lang: Language) -> anyhow::Result<()> {
         )
     };
     if hwnd.is_null() {
-        // SAFETY: Standard Windows API call or safe dereference.
-        unsafe {
-            drop(Box::from_raw(app_ptr));
-        }
         anyhow::bail!("CreateWindowExW failed: {}", last_error());
     }
 
@@ -575,6 +575,7 @@ impl NativeApp {
 
     fn can_apply(&self) -> bool {
         self.wallpaper_path.is_some()
+            && self.preview_work_image.is_some()
             && !self.apply_in_progress
             && (self.wallpaper_path != self.applied_wallpaper_path
                 || self.style != self.applied_style)
@@ -629,17 +630,18 @@ impl NativeApp {
         set_window_text(self.status_hwnd, text);
     }
 
-    fn browse(&mut self) {
-        if let Some(path) = open_image_dialog(self.hwnd, self.lang) {
-            self.select_wallpaper_path(path);
-        }
-    }
-
     fn select_wallpaper_path(&mut self, path: PathBuf) {
+        let work = load_preview_work_image(&path).ok();
+        let decode_failed = work.is_none();
+        self.preview = work.as_ref().map(|w| render_preview_bitmap(w, self.style));
+        self.preview_work_image = work;
         self.wallpaper_path = Some(path);
-        self.rebuild_preview();
         self.refresh_path_text();
-        self.set_status("");
+        if decode_failed {
+            self.set_status(self.lang.empty_preview_title());
+        } else {
+            self.set_status("");
+        }
         self.refresh_apply_enabled();
         win_invalidate(self.preview_hwnd);
     }
@@ -672,10 +674,15 @@ impl NativeApp {
     }
 
     fn rebuild_preview(&mut self) {
+        if self.preview_work_image.is_none()
+            && let Some(path) = self.wallpaper_path.as_deref()
+        {
+            self.preview_work_image = load_preview_work_image(path).ok();
+        }
         self.preview = self
-            .wallpaper_path
-            .as_deref()
-            .and_then(|path| build_preview_bitmap(path, self.style).ok());
+            .preview_work_image
+            .as_ref()
+            .map(|work| render_preview_bitmap(work, self.style));
     }
 
     fn apply(&mut self) {
@@ -763,69 +770,110 @@ unsafe extern "system" fn window_proc(
         }
     }
 
-    // SAFETY: Standard Windows API call or safe dereference.
+    // SAFETY: Standard Windows API call to retrieve the app pointer.
     let app = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp };
     if app.is_null() {
         return win_def_proc(hwnd, msg, wparam, lparam);
     }
 
-    // WM_DESTROY reclaims the boxed NativeApp via the raw pointer obtained from
-    // GWLP_USERDATA. Handle it before creating any `&mut *app`: dropping the Box
-    // through an outstanding mutable reference would violate Rust's aliasing
-    // rules even though the reference is never read afterwards.
     if msg == WM_DESTROY {
-        // SAFETY: Standard Windows API call to clear user data before drop.
+        // SAFETY: Standard Windows API call to clear user data. Ownership of the
+        // boxed NativeApp remains with run(), preventing double-free on abortive
+        // window destruction or re-entrant DestroyWindow calls.
         unsafe {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         }
-        // SAFETY: app was allocated by Box::into_raw in run() and stored in
-        // GWLP_USERDATA; we are the sole owner and the box is reclaimed exactly once.
-        drop(unsafe { Box::from_raw(app) });
         win_post_quit(0);
         return 0;
     }
 
-    // SAFETY: app points to a valid NativeApp allocated in run(); for every
-    // message below this point the GWLP_USERDATA slot is still non-null.
-    let app = unsafe { &mut *app };
+    if msg == WM_NCDESTROY {
+        // SAFETY: Standard Windows API call to clear user data before window destruction finishes.
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        }
+        return win_def_proc(hwnd, msg, wparam, lparam);
+    }
 
     match msg {
         WM_CREATE => {
             // SAFETY: Standard Windows API call or safe dereference.
             let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-            app.dpi = dpi;
-            enable_modern_window_chrome(hwnd, app.theme);
-            match create_controls(app) {
+            // SAFETY: app points to a valid NativeApp allocated in run().
+            unsafe {
+                (*app).dpi = dpi;
+            }
+            // SAFETY: app points to a valid NativeApp allocated in run().
+            let theme = unsafe { (*app).theme };
+            enable_modern_window_chrome(hwnd, theme);
+            // SAFETY: Scoped mutable reference only for create_controls duration.
+            let app_mut = unsafe { &mut *app };
+            match create_controls(app_mut) {
                 Ok(()) => 0,
                 Err(_) => -1,
             }
         }
         WM_ERASEBKGND => {
-            paint_window_background(hwnd, wparam as HDC, app);
+            // SAFETY: Read-only shared reference scoped to background painting.
+            let app_ref = unsafe { &*app };
+            paint_window_background(hwnd, wparam as HDC, app_ref);
             1
         }
         WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
-            style_text_control(wparam as HDC, lparam as HWND, app)
+            // SAFETY: Read-only shared reference scoped to control styling.
+            let app_ref = unsafe { &*app };
+            style_text_control(wparam as HDC, lparam as HWND, app_ref)
         }
-        WM_DRAWITEM => draw_button(lparam as *const DRAWITEMSTRUCT, app),
+        WM_DRAWITEM => {
+            // SAFETY: Read-only shared reference scoped to button drawing.
+            let app_ref = unsafe { &*app };
+            draw_button(lparam as *const DRAWITEMSTRUCT, app_ref)
+        }
         WM_COMMAND => {
             let id = loword(wparam) as isize;
             let notification = u32::from(hiword(wparam));
             match id {
-                ID_BROWSE => app.browse(),
-                ID_STYLE if notification == CBN_SELCHANGE => app.set_style_from_combo(),
-                ID_APPLY => app.apply(),
-                ID_CLOSE => win_destroy(hwnd),
+                ID_BROWSE => {
+                    let (app_hwnd, lang) = {
+                        // SAFETY: app points to a valid NativeApp allocated in run().
+                        let app_ref = unsafe { &*app };
+                        (app_ref.hwnd, app_ref.lang)
+                    };
+                    if let Some(path) = open_image_dialog(app_hwnd, lang) {
+                        // SAFETY: Scoped mutable borrow only for updating state.
+                        let app_mut = unsafe { &mut *app };
+                        app_mut.select_wallpaper_path(path);
+                    }
+                }
+                ID_STYLE if notification == CBN_SELCHANGE => {
+                    // SAFETY: Scoped mutable borrow only for updating style.
+                    let app_mut = unsafe { &mut *app };
+                    app_mut.set_style_from_combo();
+                }
+                ID_APPLY => {
+                    // SAFETY: Scoped mutable borrow only for initiating apply.
+                    let app_mut = unsafe { &mut *app };
+                    app_mut.apply();
+                }
+                ID_CLOSE => {
+                    // DestroyWindow invokes WM_DESTROY synchronously.
+                    // Do not hold any borrow of app across this call, eliminating aliasing UB.
+                    win_destroy(hwnd);
+                }
                 _ => {}
             }
             0
         }
         WM_DPICHANGED => {
-            app.dpi = u32::from(hiword(wparam));
+            let new_dpi = u32::from(hiword(wparam));
+            // SAFETY: app points to a valid NativeApp allocated in run().
+            unsafe {
+                (*app).dpi = new_dpi;
+            }
             if lparam != 0 {
                 // SAFETY: Standard Windows API call or safe dereference.
                 let rect = unsafe { &*(lparam as *const RECT) };
-                // SAFETY: Standard Windows API call or safe dereference.
+                // SAFETY: Standard Windows API call.
                 unsafe {
                     SetWindowPos(
                         hwnd,
@@ -838,30 +886,43 @@ unsafe extern "system" fn window_proc(
                     );
                 }
             }
-            update_ui_font(app);
-            layout_controls(app);
-            win_invalidate(app.preview_hwnd);
+            // SAFETY: Scoped mutable borrow after SetWindowPos completes.
+            let app_mut = unsafe { &mut *app };
+            update_ui_font(app_mut);
+            layout_controls(app_mut);
+            let preview_hwnd = app_mut.preview_hwnd;
+            win_invalidate(preview_hwnd);
             0
         }
         WM_SIZE => {
-            layout_controls(app);
-            win_invalidate(app.preview_hwnd);
+            // SAFETY: layout_controls takes a shared reference scoped to this call only.
+            let app_ref = unsafe { &*app };
+            layout_controls(app_ref);
+            let preview_hwnd = app_ref.preview_hwnd;
+            win_invalidate(preview_hwnd);
             0
         }
         WM_APPLY_DONE => {
-            while let Ok(result) = app.apply_rx.try_recv() {
-                app.handle_apply_result(result);
+            // SAFETY: Scoped mutable borrow for draining apply results.
+            let app_mut = unsafe { &mut *app };
+            while let Ok(result) = app_mut.apply_rx.try_recv() {
+                app_mut.handle_apply_result(result);
             }
             0
         }
         WM_DROPFILES => {
-            app.handle_drop(OwnedHDROP(wparam as HDROP));
+            // SAFETY: Scoped mutable borrow for handling file drop.
+            let app_mut = unsafe { &mut *app };
+            app_mut.handle_drop(OwnedHDROP(wparam as HDROP));
             0
         }
         WM_SETTINGCHANGE => {
-            app.refresh_theme();
+            // SAFETY: Scoped mutable borrow for refreshing theme.
+            let app_mut = unsafe { &mut *app };
+            app_mut.refresh_theme();
             0
         }
+        // SAFETY: Standard Windows API call or safe dereference.
         _ => win_def_proc(hwnd, msg, wparam, lparam),
     }
 }
@@ -888,6 +949,7 @@ unsafe extern "system" fn preview_proc(
     }
 
     match msg {
+        WM_ERASEBKGND => 1,
         WM_PAINT => {
             // SAFETY: Standard Windows API call or safe dereference.
             let app = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut NativeApp };
@@ -899,6 +961,13 @@ unsafe extern "system" fn preview_proc(
                 paint_preview(hwnd, ctx.hdc(), app_ref);
             }
             0
+        }
+        WM_NCDESTROY => {
+            // SAFETY: Clear user data pointer on destruction.
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            }
+            win_def_proc(hwnd, msg, wparam, lparam)
         }
         // SAFETY: Standard Windows API call or safe dereference.
         _ => win_def_proc(hwnd, msg, wparam, lparam),
@@ -939,6 +1008,13 @@ unsafe extern "system" fn path_proc(
                 paint_path_pill(hwnd, ctx.hdc(), app_ref);
             }
             0
+        }
+        WM_NCDESTROY => {
+            // SAFETY: Clear user data pointer on destruction.
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            }
+            win_def_proc(hwnd, msg, wparam, lparam)
         }
         // SAFETY: Standard Windows API call or safe dereference.
         _ => win_def_proc(hwnd, msg, wparam, lparam),
@@ -1669,20 +1745,18 @@ fn fill_checkerboard(hdc: HDC, rect: RECT, base: u32, alternate: u32, size: i32)
     }
 }
 
-fn build_preview_bitmap(path: &Path, style: WallpaperStyle) -> anyhow::Result<PreviewBitmap> {
-    let work = load_preview_work_image(path)?;
-    let rgba = render_preview(&work, style, PREVIEW_W, PREVIEW_H);
-    let mut bgra = Vec::with_capacity(rgba.len());
-    for px in rgba.chunks_exact(4) {
+fn render_preview_bitmap(work: &DynamicImage, style: WallpaperStyle) -> PreviewBitmap {
+    let mut rgba = render_preview(work, style, PREVIEW_W, PREVIEW_H);
+    for px in rgba.as_chunks_mut::<4>().0 {
         // StretchDIBits with a 32-bit BI_RGB DIB expects bytes in BGRA order.
-        bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+        px.swap(0, 2);
     }
 
-    Ok(PreviewBitmap {
+    PreviewBitmap {
         width: PREVIEW_W as i32,
         height: PREVIEW_H as i32,
-        bgra,
-    })
+        bgra: rgba,
+    }
 }
 
 struct CoTaskMemPtr(windows::core::PWSTR);
@@ -2415,5 +2489,16 @@ mod tests {
         assert_eq!(limits.max_image_width, Some(PREVIEW_MAX_DECODE_DIMENSION));
         assert_eq!(limits.max_image_height, Some(PREVIEW_MAX_DECODE_DIMENSION));
         assert_eq!(limits.max_alloc, Some(PREVIEW_MAX_DECODE_ALLOC));
+    }
+
+    #[test]
+    fn render_preview_bitmap_swaps_red_and_blue_channels() {
+        let img = solid_image(1, 1, RED);
+        let preview = render_preview_bitmap(&img, WallpaperStyle::Stretch);
+
+        assert_eq!(preview.width, PREVIEW_W as i32);
+        assert_eq!(preview.height, PREVIEW_H as i32);
+        // RED is [220, 0, 0, 255] in RGBA; in BGRA StretchDIBits order, it must be [0, 0, 220, 255].
+        assert_eq!(&preview.bgra[0..4], &[0, 0, 220, 255]);
     }
 }
